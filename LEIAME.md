@@ -89,12 +89,30 @@ não consegue lê-las. Informe a senha de cada conexão uma vez (Acompanhamento 
 editar a conexão; Gerar Pré-Venda: o próprio programa pede). No Gerar Pré-Venda, entre uma vez com internet para
 liberar o acesso offline de novo.
 
-## Atualização automática
+## Atualização automática (publicar uma versão nova)
 
-Uma atualização para os quatro sistemas, pelo GitHub Releases (`ramonbfpatrimonio/Parallello`, em `electron-builder.yml`).
-Crie o repositório público e publique com `npm run release`. O aviso aparece na barra superior:
+Uma atualização para os quatro sistemas, pelo GitHub Releases de `ramonbfpatrimonio/Parallello`
+(público, configurado em `electron-builder.yml`). O instalador é gerado **pelo próprio GitHub**
+(roteiro `.github/workflows/release.yml`), então não precisa de token nem de gerar nada no seu computador.
+
+### Uma vez só
+No GitHub: **Settings → Actions → General → Workflow permissions → Read and write permissions → Save**.
+
+### Toda versão nova
+Dê dois cliques em **`publicar.cmd`** (ou, no cmd, `publicar.cmd minor` para 1.0.x → 1.1.0, `publicar.cmd major` para 2.0.0). Ele:
+1. traz o que já está no GitHub e confere o código (typecheck e testes). Se algo falhar, nada é publicado;
+2. guarda as alterações, sobe a versão no `package.json` e cria a tag (ex.: `v1.0.1`);
+3. envia ao GitHub.
+
+O GitHub gera o instalador em uns 5 a 10 minutos (acompanhe em **Actions**) e publica o Release com
+`Parallello-Setup-x.y.z.exe`, `.blockmap` e `latest.yml`.
+
+Nos computadores: o Parallello verifica ao abrir e a cada 4 horas. O aviso aparece na barra superior:
 *Atualizar para X* → baixa em segundo plano → *Reiniciar e atualizar*. Se não reiniciar, instala ao fechar.
+O primeiro computador de cada cliente é instalado com o `.exe` do Release; depois disso, tudo é automático.
 Os avisos de atualização que existiam dentro do Gerar Pré-Venda e do Pesquisa de Relatórios agora ficam a cargo do Parallello.
+
+Gerar localmente continua possível: `npm run dist` (só o instalador, em `dist\`) ou `npm run release` (gera e publica do seu computador, com `GH_TOKEN`).
 
 ## Supabase
 
