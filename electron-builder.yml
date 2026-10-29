@@ -1,0 +1,43 @@
+appId: br.com.ramon.parallello
+productName: Parallello
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+asarUnpack:
+  - node_modules/pdfjs-dist/**
+  - node_modules/msnodesqlv8/**
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: Parallello-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/installerSidebar.bmp
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Parallello
+  uninstallDisplayName: Parallello
+  deleteAppDataOnUninstall: false
+  language: "1046"
+# Atualização automática: cada `npm run release` publica um Release no GitHub
+# e os computadores com o Parallello instalado atualizam sozinhos.
+# Crie o repositório (público) antes do primeiro release.
+publish:
+  provider: github
+  owner: ramonbfpatrimonio
+  repo: Parallello
+  releaseType: release
+# O driver ODBC nativo (msnodesqlv8) é opcional: veja "Driver nativo" no LEIAME.
+npmRebuild: false

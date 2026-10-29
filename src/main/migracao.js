@@ -1,0 +1,101 @@
+// Migração dos dados dos programas antigos (instalados separadamente) para o Parallello.
+//
+// Na primeira vez que cada sistema abre dentro do Parallello, os dados do programa antigo
+// (se existirem neste computador) são COPIADOS para a pasta nova. A pasta antiga não é alterada.
+//
+// As senhas do SQL Server ficam cifradas pelo Windows com uma chave de cada programa,
+// então as do programa antigo não podem ser lidas aqui: elas são retiradas da cópia e
+// cada conexão pede a senha uma vez. Todo o resto (empresas, conexões, usuários,
+// histórico, relatórios, preferências) vem junto.
+import fs from 'fs';
+import path from 'path';
+
+const MARCA = '.migracao-verificada';
+
+function copiar(origem, destino) {
+  fs.cpSync(origem, destino, { recursive: true, errorOnExist: false, force: false });
+}
+
+function editarJson(arquivo, fn) {
+  if (!fs.existsSync(arquivo)) return;
+  try {
+    const dados = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+    fs.writeFileSync(arquivo, JSON.stringify(fn(dados) ?? dados, null, 2), 'utf8');
+  } catch (_) {
+    /* arquivo ilegível: o próprio módulo trata */
+  }
+}
+
+const REGRAS = {
+  acompanhamento: {
+    origens: (ad) => [path.join(ad, 'Acompanhamento de Vendas', 'dados'), path.join(ad, 'acompanhamento-vendas', 'dados')],
+    temDados: (o) => fs.existsSync(path.join(o, 'dados.json')),
+    copiar: (o, d) => {
+      copiar(o, d);
+      editarJson(path.join(d, 'dados.json'), (x) => {
+        (x.empresas || []).forEach((e) => (e.bases || []).forEach((b) => {
+          if (String(b.senhaCifrada || '').startsWith('ss:')) b.senhaCifrada = '';
+        }));
+      });
+    },
+  },
+  'prevenda-ruptura': {
+    origens: (ad) => [path.join(ad, 'Pre-Venda de Ruptura', 'dados'), path.join(ad, 'prevenda-ruptura', 'dados')],
+    temDados: (o) => fs.existsSync(path.join(o, 'config.json')),
+    copiar: (o, d) => {
+      copiar(o, d);
+      editarJson(path.join(d, 'config.json'), (x) => {
+        (x.conexoes || []).forEach((c) => {
+          if (String(c.senhaCripto || '').startsWith('ss:')) c.senhaCripto = '';
+        });
+      });
+    },
+  },
+  'gerar-pre-venda': {
+    origens: (ad) => [path.join(ad, 'Gerar Pré-Venda'), path.join(ad, 'Gerar Pre-Venda'), path.join(ad, 'gerar-pre-venda')],
+    temDados: (o) => fs.existsSync(path.join(o, 'conexoes.json')) || fs.existsSync(path.join(o, 'aparencia.json')),
+    copiar: (o, d) => {
+      fs.mkdirSync(d, { recursive: true });
+      // O acesso offline e a fila são cifrados pelo programa antigo: não vêm (basta entrar uma vez com internet).
+      for (const nome of ['conexoes.json', 'aparencia.json']) {
+        const arq = path.join(o, nome);
+        if (fs.existsSync(arq)) fs.copyFileSync(arq, path.join(d, nome));
+      }
+      editarJson(path.join(d, 'conexoes.json'), (x) => {
+        (x.perfis || []).forEach((p) => delete p.senhaCifrada);
+      });
+    },
+  },
+  'pesquisa-relatorios': {
+    origens: (ad) => [path.join(ad, 'PesquisaRelatorios')],
+    temDados: (o) => fs.existsSync(path.join(o, 'dados')),
+    copiar: (o, d) => {
+      copiar(path.join(o, 'dados'), path.join(d, 'dados'));
+      const cfg = path.join(o, 'config.json');
+      if (fs.existsSync(cfg)) fs.copyFileSync(cfg, path.join(d, 'config.json'));
+    },
+  },
+};
+
+/** Devolve a pasta de onde os dados vieram, ou null. Nunca impede o módulo de abrir. */
+export function migrarSePreciso(moduloId, pastaDados, pastaAppData) {
+  fs.mkdirSync(pastaDados, { recursive: true });
+  const marca = path.join(pastaDados, MARCA);
+  if (fs.existsSync(marca)) return null;
+  let origemUsada = null;
+  const regra = REGRAS[moduloId];
+  try {
+    const jaTemDados = fs.readdirSync(pastaDados).length > 0;
+    if (regra && !jaTemDados) {
+      const origem = regra.origens(pastaAppData).find((o) => fs.existsSync(o) && regra.temDados(o));
+      if (origem) {
+        regra.copiar(origem, pastaDados);
+        origemUsada = origem;
+      }
+    }
+  } catch (erro) {
+    console.error(`[parallello] migração de ${moduloId} falhou:`, erro);
+  }
+  fs.writeFileSync(marca, JSON.stringify({ em: new Date().toISOString(), origem: origemUsada }), 'utf8');
+  return origemUsada;
+}

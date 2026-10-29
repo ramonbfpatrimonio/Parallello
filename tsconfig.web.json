@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"], "strict": true, "skipLibCheck": true, "noEmit": true,
+    "types": ["vite/client"], "baseUrl": ".",
+    "paths": { "@shared/*": ["src/modulos/gerar-pre-venda/shared/*"] }
+  },
+  "include": ["src/modulos/gerar-pre-venda/renderer/src/**/*", "src/modulos/gerar-pre-venda/shared/**/*", "src/modulos/gerar-pre-venda/preload/api.d.ts"]
+}

@@ -1,0 +1,1340 @@
+'use strict';
+/*
+ * Teste de ponta a ponta da interface: carrega renderer/index.html num DOM simulado (jsdom),
+ * liga a tela aos handlers reais e ao Store real (em pasta temporária) e usa a tela como uma pessoa usaria.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { JSDOM } = require('jsdom');
+const { Store } = require('../src/store');
+const { criarHandlers } = require('../src/handlers');
+const B = require('../src/busca');
+
+async function esperar(fn, ms = 3000) {
+  const fim = Date.now() + ms;
+  for (;;) {
+    const v = fn();
+    if (v) return v;
+    if (Date.now() > fim) throw new Error('Tempo esgotado esperando: ' + fn.toString());
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+async function abrirApp(dialogo = {}, opcoes = {}) {
+  const raiz = opcoes.raiz || fs.mkdtempSync(path.join(os.tmpdir(), 'pesq-ui-'));
+  const store = new Store({ pastaDados: path.join(raiz, 'dados'), pastaBackup: path.join(raiz, 'Backup'), seedPath: path.join(__dirname, '..', 'data', 'seed.json') }).iniciar();
+  // Os testes simulam uma instalação já configurada (módulos escolhidos); a primeira execução tem teste próprio.
+  if (!opcoes.primeiraExecucao) store.definirModulosOcultos([]);
+  const handlers = criarHandlers({
+    store,
+    dialogo,
+    versao: 'teste',
+    abrirPasta: async () => true,
+    abrirArquivo: async () => true,
+    salvarPastaBackup() {},
+    verificarAtualizacoes: async () => ({ emDesenvolvimento: true }),
+    baixarAtualizacao: async () => {},
+    instalarAtualizacao: () => {},
+    nuvem: {
+      leituraAtiva: false,
+      podeEscrever: () => false,
+      status: () => ({ leituraAtiva: false, autenticado: false, email: null, papel: null, sincronizando: false, ultimoErro: null }),
+      entrar: async () => ({ email: null, papel: null }),
+      sair: async () => {},
+      enviarTudo: async () => ({ alterados: false }),
+      subirImagem: async () => {},
+      baixarImagem: async () => { throw new Error('sem nuvem'); },
+      apagarImagem: async () => {},
+      listarUsuarios: async () => [],
+      criarUsuario: async () => ({ ok: true }),
+      redefinirSenhaDeUsuario: async () => ({ ok: true }),
+      definirPapelDeUsuario: async () => ({ ok: true }),
+      excluirUsuario: async () => ({ ok: true }),
+      redefinirMinhaSenha: async () => ({ ok: true }),
+      ...opcoes.nuvem,
+    },
+  });
+  const dom = await JSDOM.fromFile(path.join(__dirname, '..', 'renderer', 'index.html'), {
+    runScripts: 'dangerously',
+    resources: 'usable',
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.api = handlers;
+      // simula o push de eventos de atualização que, no app de verdade, vem do preload/main.js
+      window.api.aoAtualizar = (ouvinte) => { window.__ouvinteAtualizacao = ouvinte; };
+      window.api.aoStatusNuvem = (ouvinte) => { window.__ouvinteStatusNuvem = ouvinte; };
+    },
+  });
+  const w = dom.window;
+  const doc = w.document;
+  await esperar(() => doc.querySelector('.pesquisa'));
+
+  const api = {
+    dom, w, doc, store, raiz,
+    todos: (sel, raizEl = doc) => [...raizEl.querySelectorAll(sel)],
+    botao(texto, raizEl = doc) {
+      return [...raizEl.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith(texto));
+    },
+    clicar(el) {
+      assert.ok(el, 'elemento para clicar não encontrado');
+      el.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+    },
+    tecla(el, key) {
+      el.dispatchEvent(new w.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    },
+    digitar(el, texto) {
+      el.focus();
+      el.value = texto;
+      el.dispatchEvent(new w.Event('input', { bubbles: true }));
+    },
+    // Escolhe uma coluna no campo de colunas como o usuário faria: digita e aperta Enter.
+    escolherColuna(picker, nome) {
+      const entrada = picker.querySelector('input');
+      api.digitar(entrada, nome);
+      api.tecla(entrada, 'Enter');
+    },
+    async aba(nome) {
+      let botao = api.botao(nome, doc.querySelector('#abas'));
+      if (!botao) await api.destravarMenu(); // menu protegido: aparece só depois da senha
+      botao = api.botao(nome, doc.querySelector('#abas'));
+      api.clicar(botao);
+    },
+    async destravarMenu(email = 'teste@teste.com', senha = 'qualquer-senha') {
+      doc.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'B', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+      await esperar(() => api.modal());
+      api.digitar(api.modal().querySelector('#campo-email'), email);
+      api.digitar(api.modal().querySelector('#campo-senha'), senha);
+      api.clicar(api.botao('Entrar', api.modal()));
+      await esperar(() => !api.modal());
+    },
+    // Os grupos de resultado começam recolhidos: abre todos clicando na seta de cada um.
+    abrirGrupos() {
+      for (;;) {
+        const fechado = api.todos('.grupo-cabecalho').find((c) => c.getAttribute('aria-expanded') === 'false');
+        if (!fechado) break;
+        api.clicar(fechado);
+      }
+    },
+    modal: () => doc.querySelector('.modal'),
+    dispararAtualizacao(dados) {
+      assert.ok(w.__ouvinteAtualizacao, 'app.js precisa ter chamado window.api.aoAtualizar');
+      w.__ouvinteAtualizacao(dados);
+    },
+    dispararStatusNuvem(status) {
+      assert.ok(w.__ouvinteStatusNuvem, 'app.js precisa ter chamado window.api.aoStatusNuvem');
+      w.__ouvinteStatusNuvem(status);
+    },
+    fechar: () => dom.window.close(),
+  };
+  return api;
+}
+
+test('abre na aba Pesquisar com o menu protegido escondido e a lista de colunas mais usadas', async () => {
+  const a = await abrirApp();
+  assert.deepEqual(a.todos('#abas button').map((b) => b.textContent), ['Pesquisar']);
+  assert.equal(a.doc.querySelector('#abas [aria-current="page"]').textContent, 'Pesquisar');
+  const segmentos = a.todos('.segmento-linha').map((l) => l.textContent);
+  assert.deepEqual(segmentos, ['ATIVO_ADM90', 'ATIVO_LOG339', 'ATIVO_LOG_EFD13', 'ATIVO_INT159', 'ATIVO_COM201', 'ATIVO_COM_EFD18', 'ATIVO_WMS21', 'ATIVO_ECD0']);
+  assert.match(a.doc.querySelector('.vazio-pesquisa h1').textContent, /Quais colunas/);
+  assert.equal(a.todos('.vazio-pesquisa .chip').length, 18);
+  a.fechar();
+});
+
+test('mostra a versão do app no canto inferior esquerdo da barra lateral', async () => {
+  const a = await abrirApp();
+  assert.equal(a.doc.querySelector('#versao-app').firstChild.textContent, 'vteste');
+  a.fechar();
+});
+
+test('ícone de novidades ao lado da versão mostra o texto de data/novidades.txt', async () => {
+  const a = await abrirApp();
+  const icone = a.doc.querySelector('#versao-app .rel-ajuda');
+  assert.ok(icone, 'deve ter o ícone de novidades (data/novidades.txt tem texto)');
+  const esperado = fs.readFileSync(path.join(__dirname, '..', 'data', 'novidades.txt'), 'utf8').trim();
+  icone.dispatchEvent(new a.w.Event('mouseenter'));
+  assert.equal(a.doc.querySelector('.dica-flutuante').textContent, esperado);
+  a.fechar();
+});
+
+test('barra de rolagem do menu de colunas não fecha o menu (mousedown é cancelado)', async () => {
+  const a = await abrirApp();
+  const entrada = a.doc.querySelector('.picker input');
+  a.digitar(entrada, ''); // abre o menu (foco já abre, mas garante)
+  entrada.dispatchEvent(new a.w.Event('focus'));
+  const menu = a.doc.querySelector('.picker-menu');
+  const evento = new a.w.MouseEvent('mousedown', { bubbles: true, cancelable: true });
+  menu.dispatchEvent(evento);
+  assert.equal(evento.defaultPrevented, true, 'mousedown no menu precisa ser cancelado, senão o campo perde o foco e o menu fecha');
+  a.fechar();
+});
+
+test('Configurações: esconder um módulo tira ele da lista de Pesquisar, some da busca e fica salvo', async () => {
+  const a = await abrirApp();
+  await a.aba('Configurações');
+  await esperar(() => a.doc.querySelector('.checkbox-linha'));
+
+  const antes = a.todos('.checkbox-linha').length;
+  assert.equal(antes, a.store.db.modulos.length);
+
+  const linhaLog = a.todos('.checkbox-linha').find((l) => l.textContent.trim() === 'ATIVO_LOG');
+  assert.ok(linhaLog);
+  const caixa = linhaLog.querySelector('input[type="checkbox"]');
+  assert.equal(caixa.checked, true);
+  caixa.checked = false;
+  caixa.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  await esperar(() => a.store.db.modulosOcultos.includes('ATIVO_LOG'));
+
+  await a.aba('Pesquisar');
+  const nomesModulo = a.todos('.segmentos button span:first-child').map((s) => s.textContent);
+  assert.ok(!nomesModulo.includes('ATIVO_LOG'), 'módulo escondido não aparece mais na lista de Pesquisar');
+
+  // some da busca em "Todos" também, não só da lista
+  const totalAntes = B.pesquisar(a.store.db.relatorios, { modulo: '*', colunas: ['NF'] }).total;
+  a.escolherColuna(a.doc.querySelector('.picker'), 'NF');
+  a.abrirGrupos();
+  const totalNaTela = a.todos('.rel').length;
+  assert.ok(totalNaTela < totalAntes, 'relatórios do módulo escondido não aparecem mais nem pesquisando em Todos');
+
+  a.fechar();
+});
+
+test('primeira abertura: todos os módulos desmarcados, precisa marcar ao menos um, não fecha com Esc, e a escolha vale', async () => {
+  const a = await abrirApp({}, { primeiraExecucao: true });
+  await esperar(() => a.modal());
+  const m = a.modal();
+  assert.match(m.textContent, /Escolha os módulos que você usa/);
+  const caixas = a.todos('input[type="checkbox"]', m);
+  assert.equal(caixas.length, a.store.db.modulos.length);
+  assert.ok(caixas.every((c) => !c.checked), 'começa tudo desmarcado');
+
+  const continuar = a.botao('Continuar', m);
+  assert.equal(continuar.disabled, true, 'sem nenhum marcado não continua');
+
+  a.doc.dispatchEvent(new a.w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  assert.ok(a.modal(), 'Esc não fecha essa janela');
+
+  const marcar = (nome) => {
+    const c = a.todos('.checkbox-linha', m).find((l) => l.textContent.trim() === nome).querySelector('input');
+    c.checked = true;
+    c.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  };
+  marcar('ATIVO_ADM');
+  marcar('ATIVO_COM');
+  assert.equal(continuar.disabled, false);
+  a.clicar(continuar);
+  await esperar(() => !a.modal());
+
+  assert.equal(a.store.db.modulosEscolhidos, true);
+  assert.deepEqual(a.store.db.modulos.filter((x) => !a.store.db.modulosOcultos.includes(x)).sort(), ['ATIVO_ADM', 'ATIVO_COM']);
+  const nomes = a.todos('.segmento-linha').map((l) => l.textContent.replace(/\d+$/, ''));
+  assert.deepEqual(nomes.sort(), ['ATIVO_ADM', 'ATIVO_COM']);
+  a.fechar();
+});
+
+test('quem já escolheu os módulos não vê a janela de escolha inicial', async () => {
+  const a = await abrirApp();
+  assert.equal(a.modal(), null);
+  a.fechar();
+});
+
+test('lista de módulos é recolhível e começa fechada', async () => {
+  const a = await abrirApp();
+  const cabecalho = a.doc.querySelector('.modulo-cabecalho');
+  assert.equal(cabecalho.getAttribute('aria-expanded'), 'false');
+  assert.equal(a.doc.querySelector('.segmentos').hidden, true);
+
+  a.clicar(cabecalho);
+  assert.equal(a.doc.querySelector('.modulo-cabecalho').getAttribute('aria-expanded'), 'true');
+  assert.equal(a.doc.querySelector('.segmentos').hidden, false);
+
+  a.clicar(a.doc.querySelector('.modulo-cabecalho'));
+  assert.equal(a.doc.querySelector('.modulo-cabecalho').getAttribute('aria-expanded'), 'false');
+  assert.equal(a.doc.querySelector('.segmentos').hidden, true);
+  a.fechar();
+});
+
+test('módulo: seleciona vários por checkbox, a lista fica aberta, e "Todos"/"Marcar todos" funcionam', async () => {
+  const a = await abrirApp();
+  const cabecalho = () => a.doc.querySelector('.modulo-cabecalho');
+  assert.match(cabecalho().textContent, /^Todos/); // começa em "Todos" (nada selecionado)
+
+  a.clicar(cabecalho());
+  assert.equal(a.doc.querySelector('.segmentos').hidden, false);
+
+  const caixaDoModulo = (nome) => a.todos('.segmento-linha').find((l) => l.textContent.startsWith(nome)).querySelector('input');
+  a.clicar(caixaDoModulo('ATIVO_LOG'));
+  assert.equal(a.doc.querySelector('.segmentos').hidden, false, 'marcar um checkbox não fecha a lista, dá pra marcar mais de um');
+  assert.match(cabecalho().textContent, /^ATIVO_LOG/, 'com 1 módulo marcado, a caixa mostra o nome dele');
+
+  a.clicar(caixaDoModulo('ATIVO_ADM'));
+  assert.match(cabecalho().textContent, /^2 módulos/, 'com mais de 1 marcado, mostra a quantidade');
+
+  a.clicar(a.botao('Todos', a.doc.querySelector('.segmentos')));
+  assert.match(cabecalho().textContent, /^Todos/);
+  assert.equal(caixaDoModulo('ATIVO_LOG').checked, false);
+
+  a.clicar(a.botao('Marcar todos', a.doc.querySelector('.segmentos')));
+  assert.equal(caixaDoModulo('ATIVO_LOG').checked, true);
+  assert.equal(caixaDoModulo('ATIVO_ECD').checked, true);
+
+  a.clicar(cabecalho());
+  assert.equal(a.doc.querySelector('.segmentos').hidden, true);
+  a.fechar();
+});
+
+test('pesquisa por colunas mostra o mesmo resultado que a lógica de busca, agrupado por acertos', async () => {
+  const a = await abrirApp();
+  const picker = a.doc.querySelector('.picker');
+  a.escolherColuna(picker, 'VENCIMENTO');
+  a.escolherColuna(picker, 'BANCO');
+  a.escolherColuna(picker, 'CHEQUE');
+
+  assert.deepEqual(a.todos('.picker .chip.editavel').map((c) => c.firstChild.textContent), ['VENCIMENTO', 'BANCO', 'CHEQUE']);
+  const esperado = B.pesquisar(a.store.db.relatorios, { modulo: '*', colunas: ['VENCIMENTO', 'BANCO', 'CHEQUE'] });
+  assert.ok(esperado.total > 0);
+  assert.equal(a.todos('.grupo').length, esperado.grupos.length);
+  assert.deepEqual(
+    a.todos('.grupo .placar').map((p) => p.textContent),
+    esperado.grupos.map((g) => `${g.acertos}/3`)
+  );
+  // os grupos começam todos recolhidos
+  const cabecalhos = a.todos('.grupo-cabecalho');
+  assert.ok(cabecalhos.every((c) => c.getAttribute('aria-expanded') === 'false'));
+  assert.equal(a.todos('.rel').length, 0);
+
+  // abre o primeiro grupo (melhor resultado) e confirma que só os itens dele aparecem
+  a.clicar(cabecalhos[0]);
+  assert.equal(a.todos('.rel').length, esperado.grupos[0].itens.length);
+  // as colunas escolhidas aparecem destacadas nos relatórios
+  const primeiro = a.doc.querySelector('.rel');
+  assert.ok(primeiro.querySelectorAll('.chip.hit').length >= 1);
+  // relatório com tudo aparece primeiro e tem o título de "todas as 3 colunas" se existir
+  if (esperado.grupos[0].acertos === 3) assert.match(a.doc.querySelector('.resultados h1').textContent, /todas as 3 colunas/);
+
+  // abre todos os grupos pela seta e confirma que a soma bate com o total da busca
+  a.abrirGrupos();
+  assert.equal(a.todos('.rel').length, esperado.total);
+
+  // as colunas de cada relatório aparecem em ordem alfabética (escolhidas primeiro, depois o resto)
+  for (const cartao of a.todos('.rel')) {
+    const nomes = a.todos('.chip', cartao).map((c) => c.textContent);
+    const hits = nomes.filter((n) => ['VENCIMENTO', 'BANCO', 'CHEQUE'].includes(n));
+    const resto = nomes.filter((n) => !['VENCIMENTO', 'BANCO', 'CHEQUE'].includes(n));
+    assert.deepEqual(hits, [...hits].sort((x, y) => x.localeCompare(y, 'pt')));
+    assert.deepEqual(resto, [...resto].sort((x, y) => x.localeCompare(y, 'pt')));
+  }
+  a.fechar();
+});
+
+test('filtrar por módulo e abrir/fechar grupos de resultado pela seta', async () => {
+  const a = await abrirApp();
+  const picker = a.doc.querySelector('.picker');
+  a.escolherColuna(picker, 'NF');
+  a.escolherColuna(picker, 'SERIE');
+
+  a.clicar(a.doc.querySelector('.modulo-cabecalho'));
+  a.clicar(a.todos('.segmento-linha').find((l) => l.textContent.startsWith('ATIVO_LOG_EFD')).querySelector('input'));
+  const esperado = B.pesquisar(a.store.db.relatorios, { modulo: 'ATIVO_LOG_EFD', colunas: ['NF', 'SERIE'] });
+  assert.ok(a.todos('.rel-modulo').every((m) => m.textContent === 'ATIVO_LOG_EFD'));
+
+  const cabecalhos = a.todos('.grupo-cabecalho');
+  assert.ok(cabecalhos.length >= 2, 'esse cenário precisa ter mais de um grupo para o teste fazer sentido');
+  // todos os grupos começam recolhidos
+  assert.ok(cabecalhos.every((c) => c.getAttribute('aria-expanded') === 'false'));
+  assert.equal(a.todos('.rel').length, 0);
+
+  // abre o primeiro grupo
+  a.clicar(a.todos('.grupo-cabecalho')[0]);
+  assert.equal(a.todos('.grupo-cabecalho')[0].getAttribute('aria-expanded'), 'true');
+  assert.equal(a.todos('.rel').length, esperado.grupos[0].itens.length);
+  assert.ok(a.todos('.rel-modulo').every((m) => m.textContent === 'ATIVO_LOG_EFD'));
+
+  // clicar de novo na seta do primeiro grupo fecha a lista dele
+  a.clicar(a.todos('.grupo-cabecalho')[0]);
+  assert.equal(a.todos('.grupo-cabecalho')[0].getAttribute('aria-expanded'), 'false');
+  assert.equal(a.todos('.rel').length, 0);
+
+  // clicar na seta do segundo grupo abre a lista dele
+  a.clicar(a.todos('.grupo-cabecalho')[1]);
+  assert.equal(a.todos('.grupo-cabecalho')[1].getAttribute('aria-expanded'), 'true');
+  assert.equal(a.todos('.rel').length, esperado.grupos[1].itens.length);
+  a.fechar();
+});
+
+test('sem resultado: mensagem clara; limpar colunas volta ao começo', async () => {
+  const a = await abrirApp();
+  const picker = a.doc.querySelector('.picker');
+  a.escolherColuna(picker, 'NF');
+  a.clicar(a.doc.querySelector('.modulo-cabecalho'));
+  a.clicar(a.todos('.segmento-linha').find((l) => l.textContent.startsWith('ATIVO_ECD')).querySelector('input')); // módulo vazio
+  assert.match(a.doc.querySelector('.resultados h1').textContent, /Nenhum relatório tem essas colunas/);
+  a.clicar(a.botao('Limpar colunas'));
+  assert.ok(a.doc.querySelector('.vazio-pesquisa'));
+  a.fechar();
+});
+
+test('digitar no campo sugere colunas; setas e Enter escolhem; Backspace remove a última', async () => {
+  const a = await abrirApp();
+  const entrada = a.doc.querySelector('.picker input');
+  a.digitar(entrada, 'venc');
+  const opcoes = a.todos('.picker-menu li');
+  assert.ok(opcoes.length > 1);
+  assert.match(opcoes[0].textContent, /^VENCIMENTO/);
+  a.tecla(entrada, 'ArrowDown');
+  assert.equal(a.todos('.picker-menu li')[1].getAttribute('aria-selected'), 'true');
+  a.tecla(entrada, 'Enter');
+  assert.equal(a.todos('.picker .chip.editavel').length, 1);
+  a.tecla(entrada, 'Backspace');
+  assert.equal(a.todos('.picker .chip.editavel').length, 0);
+  a.fechar();
+});
+
+test('menu protegido: Ctrl+Shift+B pede login (e-mail/senha) para liberar Relatórios, Colunas, Filtros e Configurações', async () => {
+  const nuvem = {
+    entrar: async (email, senha) => {
+      if (senha !== 'senha-certa') throw new Error('E-mail ou senha incorretos.');
+      return { email, papel: 'admin' };
+    },
+    sair: async () => {},
+  };
+  const a = await abrirApp({}, { nuvem });
+  assert.deepEqual(a.todos('#abas button').map((b) => b.textContent), ['Pesquisar']);
+
+  // senha errada não libera
+  a.doc.dispatchEvent(new a.w.KeyboardEvent('keydown', { key: 'B', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  await esperar(() => a.modal());
+  a.digitar(a.modal().querySelector('#campo-email'), 'quem@quem.com');
+  a.digitar(a.modal().querySelector('#campo-senha'), 'senha-errada');
+  a.clicar(a.botao('Entrar', a.modal()));
+  await esperar(() => a.modal() && a.modal().querySelector('.erro-login:not([hidden])'));
+  assert.match(a.modal().querySelector('.erro-login').textContent, /incorretos/);
+  assert.ok(a.modal(), 'a janela continua aberta pra tentar de novo');
+  assert.deepEqual(a.todos('#abas button').map((b) => b.textContent), ['Pesquisar']);
+  a.clicar(a.botao('Cancelar', a.modal()));
+  await esperar(() => !a.modal());
+
+  // senha certa libera os menus
+  await a.destravarMenu('quem@quem.com', 'senha-certa');
+  assert.deepEqual(a.todos('#abas button').map((b) => b.textContent), ['Pesquisar', 'Cadastros▾', 'Relatórios', 'Colunas', 'Filtros', 'Configurações']);
+
+  // apertar de novo esconde, sem pedir senha, e volta para Pesquisar se estiver em outra aba
+  await a.aba('Relatórios');
+  assert.equal(a.doc.querySelector('#abas [aria-current="page"]').textContent, 'Relatórios');
+  a.doc.dispatchEvent(new a.w.KeyboardEvent('keydown', { key: 'B', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  await esperar(() => a.todos('#abas button').length === 1);
+  assert.equal(a.doc.querySelector('#abas [aria-current="page"]').textContent, 'Pesquisar');
+  a.fechar();
+});
+
+test('cadastrar novo relatório com coluna nova, e recusar nome repetido', async () => {
+  const a = await abrirApp();
+  await a.aba('Relatórios');
+  await esperar(() => a.doc.querySelector('.tabela'));
+  assert.equal(a.doc.querySelector('.contagem').textContent, '841 relatórios');
+
+  a.clicar(a.botao('Novo relatório'));
+  const m = a.modal();
+  assert.ok(m);
+  a.digitar(m.querySelector('#campo-nome'), 'Relatório de Teste da Interface');
+  m.querySelector('#campo-modulo').value = 'ATIVO_ECD';
+  const picker = m.querySelector('.picker');
+  a.escolherColuna(picker, 'coluna_inventada_ui');
+  a.escolherColuna(picker, 'NF');
+  a.clicar(a.botao('Salvar', m));
+  await esperar(() => !a.modal());
+
+  const criado = a.store.db.relatorios.find((r) => r.nome === 'Relatório de Teste da Interface');
+  assert.ok(criado);
+  assert.equal(criado.modulo, 'ATIVO_ECD');
+  assert.deepEqual(criado.colunas, ['COLUNA_INVENTADA_UI', 'NF']);
+  assert.equal(a.doc.querySelector('.contagem').textContent, '842 relatórios');
+
+  // nome repetido no mesmo módulo
+  a.clicar(a.botao('Novo relatório'));
+  const m2 = a.modal();
+  a.digitar(m2.querySelector('#campo-nome'), 'relatorio de teste da interface');
+  m2.querySelector('#campo-modulo').value = 'ATIVO_ECD';
+  a.clicar(a.botao('Salvar', m2));
+  await esperar(() => a.doc.querySelector('.aviso.erro'));
+  assert.match(a.doc.querySelector('.aviso.erro').textContent, /Já existe/);
+  assert.ok(a.modal(), 'a janela continua aberta para corrigir');
+  assert.equal(a.store.db.relatorios.length, 842);
+  a.fechar();
+});
+
+test('texto digitado e não confirmado no campo de colunas bloqueia o salvar', async () => {
+  const a = await abrirApp();
+  await a.aba('Relatórios');
+  a.clicar(a.botao('Novo relatório'));
+  const m = a.modal();
+  a.digitar(m.querySelector('#campo-nome'), 'Com texto pendente');
+  a.digitar(m.querySelector('.picker input'), 'ABC');
+  a.clicar(a.botao('Salvar', m));
+  await esperar(() => a.doc.querySelector('.aviso.erro'));
+  assert.match(a.doc.querySelector('.aviso.erro').textContent, /não adicionou/);
+  assert.equal(a.store.db.relatorios.length, 841);
+  a.fechar();
+});
+
+test('editar e excluir relatório existente', async () => {
+  const a = await abrirApp();
+  await a.aba('Relatórios');
+  const alvo = a.store.db.relatorios.find((r) => r.nome === 'Cheques por Cliente/Vencimento');
+  assert.ok(alvo);
+  const totalAntes = alvo.colunas.length; // "alvo" é o próprio objeto do banco: guardamos o número antes de salvar
+  a.clicar(a.todos('.tabela button.link').find((b) => b.textContent === alvo.nome));
+  const m = a.modal();
+  assert.equal(m.querySelector('#campo-nome').value, alvo.nome);
+  const chips = a.todos('.chip.editavel', m);
+  assert.equal(chips.length, totalAntes);
+  a.clicar(chips[0].querySelector('button')); // remove a primeira coluna
+  a.clicar(a.botao('Salvar', m));
+  await esperar(() => !a.modal());
+  assert.equal(a.store.db.relatorios.find((r) => r.id === alvo.id).colunas.length, totalAntes - 1);
+
+  a.clicar(a.todos('.tabela button.link').find((b) => b.textContent === alvo.nome));
+  a.clicar(a.botao('Excluir relatório', a.modal()));
+  await esperar(() => a.todos('.modal').length === 2);
+  a.clicar(a.botao('Excluir', a.todos('.modal')[1]));
+  await esperar(() => !a.modal());
+  assert.ok(!a.store.db.relatorios.some((r) => r.id === alvo.id));
+  a.fechar();
+});
+
+test('módulos: criar e excluir quando vazio', async () => {
+  const a = await abrirApp();
+  await a.aba('Relatórios');
+  a.clicar(a.botao('Novo módulo'));
+  a.digitar(a.modal().querySelector('input'), 'ativo pdv');
+  a.clicar(a.botao('Continuar', a.modal()));
+  await esperar(() => a.store.db.modulos.includes('ativo_pdv'));
+  await esperar(() => !a.modal());
+  const sel = a.doc.querySelector('.barra select');
+  sel.value = 'ativo_pdv';
+  sel.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  a.clicar(a.botao('Excluir módulo ativo_pdv'));
+  await esperar(() => a.modal());
+  a.clicar(a.botao('Excluir módulo', a.modal()));
+  await esperar(() => !a.store.db.modulos.includes('ativo_pdv'));
+  a.fechar();
+});
+
+test('aba Colunas: nomes parecidos são listados e a unificação vale para todos os relatórios', async () => {
+  const a = await abrirApp();
+  await a.aba('Colunas');
+  const pares = a.todos('.par');
+  assert.ok(pares.length >= 5, 'a planilha original tem vários erros de digitação');
+  const parFamila = pares.find((p) => p.textContent.includes('FAMILA'));
+  assert.ok(parFamila);
+  assert.match(parFamila.textContent, /Unificar em FAMILIA/);
+  const antes = a.store.db.relatorios.filter((r) => r.colunas.includes('FAMILA')).length;
+  assert.ok(antes >= 1);
+
+  a.clicar(a.botao('Unificar em FAMILIA', parFamila));
+  await esperar(() => a.modal());
+  assert.match(a.modal().textContent, /Trocar FAMILA por FAMILIA/);
+  a.clicar(a.botao('Unificar', a.modal()));
+  await esperar(() => !a.store.db.relatorios.some((r) => r.colunas.includes('FAMILA')));
+  await esperar(() => !a.todos('.par').some((p) => p.textContent.includes('FAMILA')));
+  a.fechar();
+});
+
+test('menu lateral: "Cadastros" agrupa Relatórios, Colunas e Filtros e é recolhível; Configurações fica fora', async () => {
+  const a = await abrirApp();
+  await a.destravarMenu();
+  const nomes = () => a.todos('#abas button').map((el) => el.textContent);
+  assert.deepEqual(nomes(), ['Pesquisar', 'Cadastros▾', 'Relatórios', 'Colunas', 'Filtros', 'Configurações']);
+
+  a.clicar(a.botao('Cadastros'));
+  assert.deepEqual(nomes(), ['Pesquisar', 'Cadastros▾', 'Configurações'], 'recolhido esconde os três');
+  assert.equal(a.botao('Cadastros').getAttribute('aria-expanded'), 'false');
+
+  a.clicar(a.botao('Cadastros'));
+  assert.deepEqual(nomes(), ['Pesquisar', 'Cadastros▾', 'Relatórios', 'Colunas', 'Filtros', 'Configurações']);
+  a.fechar();
+});
+
+test('renomear filtro AVULSO (0 relatórios) funciona sem pedir confirmação de perigo — bug corrigido', async () => {
+  const a = await abrirApp();
+  a.store.criarFiltro({ nome: 'Grupos', tipo: 'texto' });
+  await a.aba('Filtros');
+  await esperar(() => a.doc.querySelector('.tabela tbody tr'));
+  const linha = a.todos('.tabela tbody tr').find((tr) => tr.textContent.includes('Grupos'));
+  a.clicar(a.botao('Renomear', linha));
+  await esperar(() => a.modal());
+  a.digitar(a.modal().querySelector('input'), 'Grupo');
+  a.clicar(a.botao('Continuar', a.modal()));
+  await esperar(() => a.store.db.filtrosCadastrados.some((f) => f.nome === 'Grupo'));
+  assert.ok(!a.modal(), 'sem uso em nenhum relatório, não pede confirmação de perigo');
+  a.fechar();
+});
+
+test('aba Filtros: lista os filtros cadastrados, busca, "Ver relatórios" e "Renomear"', async () => {
+  const a = await abrirApp();
+  a.store.salvarRelatorio({ nome: 'Rel A', modulo: 'ATIVO_ECD', colunas: ['X'], filtros: [{ nome: 'Cliente', tipo: 'texto' }] });
+  a.store.salvarRelatorio({ nome: 'Rel B', modulo: 'ATIVO_ADM', colunas: ['X'], filtros: [{ nome: 'Cliente', tipo: 'texto' }, { nome: 'Situacao', tipo: 'lista', opcoes: ['Aberto'] }] });
+
+  await a.aba('Filtros');
+  await esperar(() => a.doc.querySelector('.tabela'));
+  assert.equal(a.doc.querySelector('.contagem').textContent, '2 filtros');
+
+  a.digitar(a.doc.querySelector('input[type="search"]'), 'situa');
+  assert.equal(a.doc.querySelector('.contagem').textContent, '1 filtro');
+  const linha = a.todos('.tabela tbody tr')[0];
+  assert.match(linha.textContent, /Situacao/);
+  assert.match(linha.textContent, /Lista/);
+  assert.equal(linha.querySelector('.num').textContent, '1');
+
+  a.clicar(a.botao('Ver relatórios', linha));
+  await esperar(() => a.modal());
+  assert.match(a.modal().textContent, /Rel B/);
+  assert.ok(!a.modal().textContent.includes('Rel A'), 'Rel A não tem o filtro Situacao');
+  a.clicar(a.botao('Fechar', a.modal()));
+  await esperar(() => !a.modal());
+
+  a.digitar(a.doc.querySelector('input[type="search"]'), '');
+  const linhaCliente = a.todos('.tabela tbody tr').find((tr) => tr.textContent.includes('Cliente'));
+  a.clicar(a.botao('Renomear', linhaCliente));
+  await esperar(() => a.modal());
+  a.digitar(a.modal().querySelector('input'), 'Comprador');
+  a.clicar(a.botao('Continuar', a.modal()));
+  await esperar(() => a.modal() && /Cuidado ao renomear/.test(a.modal().textContent));
+  assert.match(a.modal().textContent, /2 relatórios/);
+  a.clicar(a.botao('Renomear mesmo assim', a.modal()));
+  await esperar(() => a.store.db.relatorios.find((r) => r.nome === 'Rel A').filtros[0].nome === 'Comprador');
+  assert.equal(a.store.db.relatorios.find((r) => r.nome === 'Rel B').filtros[0].nome, 'Comprador');
+  a.fechar();
+});
+
+test('aba Colunas: "Nova coluna" cria uma solta, aparece na lista e nas sugestões, e não deixa criar igual', async () => {
+  const a = await abrirApp();
+  await a.aba('Colunas');
+  a.clicar(a.botao('Nova coluna'));
+  await esperar(() => a.modal());
+  a.digitar(a.modal().querySelector('input'), 'coluna solta teste');
+  a.clicar(a.botao('Continuar', a.modal()));
+  await esperar(() => a.store.db.colunasCadastradas.includes('COLUNA SOLTA TESTE'));
+  await esperar(() => !a.modal());
+  assert.ok(a.todos('.tabela tbody tr').some((tr) => tr.firstChild.textContent === 'COLUNA SOLTA TESTE'), 'aparece na tabela mesmo sem relatório');
+
+  // duplicata (mesma coluna, caixa diferente): avisa e não cria outra
+  a.clicar(a.botao('Nova coluna'));
+  await esperar(() => a.modal());
+  a.digitar(a.modal().querySelector('input'), 'Coluna Solta Teste');
+  a.clicar(a.botao('Continuar', a.modal()));
+  await esperar(() => a.doc.querySelector('.aviso.erro'));
+  assert.match(a.doc.querySelector('.aviso.erro').textContent, /já existe/);
+  assert.equal(a.store.db.colunasCadastradas.filter((c) => c === 'COLUNA SOLTA TESTE').length, 1);
+  a.fechar();
+});
+
+test('aba Filtros: "Novo filtro" cria um solto (tipo lista com opções) e recusa duplicata', async () => {
+  const a = await abrirApp();
+  await a.aba('Filtros');
+  a.clicar(a.botao('Novo filtro'));
+  await esperar(() => a.modal());
+  const m = a.modal();
+  a.digitar(m.querySelector('#novo-filtro-nome'), 'Situacao');
+  m.querySelector('#novo-filtro-tipo').value = 'lista';
+  m.querySelector('#novo-filtro-tipo').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  assert.equal(m.querySelector('#novo-filtro-opcoes').parentElement.hidden, false);
+  a.digitar(m.querySelector('#novo-filtro-opcoes'), 'Aberto, Fechado');
+  a.clicar(a.botao('Criar', m));
+  await esperar(() => a.store.db.filtrosCadastrados.length === 1);
+  assert.deepEqual(a.store.db.filtrosCadastrados[0], { nome: 'Situacao', tipo: 'lista', opcoes: ['Aberto', 'Fechado'] });
+  await esperar(() => !a.modal());
+  assert.equal(a.doc.querySelector('.contagem').textContent, '1 filtro');
+
+  a.clicar(a.botao('Novo filtro'));
+  await esperar(() => a.modal());
+  a.digitar(a.modal().querySelector('#novo-filtro-nome'), 'situacao');
+  a.clicar(a.botao('Criar', a.modal()));
+  await esperar(() => a.doc.querySelector('.aviso.erro'));
+  assert.match(a.doc.querySelector('.aviso.erro').textContent, /já existe/);
+  assert.ok(a.modal(), 'a janela continua aberta pra corrigir o nome');
+  assert.equal(a.store.db.filtrosCadastrados.length, 1);
+  a.fechar();
+});
+
+test('filtro cadastrado solto aparece como sugestão no editor de relatório', async () => {
+  const a = await abrirApp();
+  a.store.criarFiltro({ nome: 'Local De Armazenagem', tipo: 'texto' });
+  await a.aba('Relatórios');
+  a.clicar(a.botao('Novo relatório'));
+  const pickerFiltros = a.todos('.picker', a.modal())[1]; // 0 = colunas, 1 = filtros
+  const busca = pickerFiltros.querySelector('input');
+  a.digitar(busca, 'armaz');
+  busca.dispatchEvent(new a.w.Event('focus'));
+  const itens = a.todos('.picker-menu li', pickerFiltros).map((li) => li.textContent);
+  assert.ok(itens.some((t) => t.startsWith('Local De Armazenagem')), 'sugere o filtro solto');
+
+  // com o nome exato, não oferece criar outro igual (só a sugestão dele)
+  a.digitar(busca, 'local de armazenagem');
+  const itensExato = a.todos('.picker-menu li', pickerFiltros).map((li) => li.textContent);
+  assert.ok(itensExato.some((t) => t.startsWith('Local De Armazenagem')));
+  assert.ok(!itensExato.some((t) => t.startsWith('Criar filtro')), 'não oferece criar de novo um que já existe');
+  a.fechar();
+});
+
+test('Pesquisar: buscar só pelo nome do relatório lista os que batem, e junto com colunas refina', async () => {
+  const a = await abrirApp();
+  const campo = a.doc.querySelector('#busca-nome-relatorio');
+  a.digitar(campo, 'cheques por cliente');
+  const esperados = a.store.db.relatorios.filter((r) => r.nome.toLowerCase().includes('cheques por cliente'));
+  assert.ok(esperados.length >= 2);
+  assert.equal(a.todos('.rel').length, esperados.length, 'só nome: lista direto, sem precisar escolher coluna');
+  assert.match(a.doc.querySelector('.resultados h1').textContent, new RegExp(`^${esperados.length} relatórios encontrados`));
+
+  // sem nada batendo
+  a.digitar(campo, 'zzzz nao existe');
+  assert.match(a.doc.querySelector('.resultados h1').textContent, /Nenhum relatório encontrado/);
+
+  // nome + coluna: refina (só ficam os do nome que também têm a coluna)
+  a.digitar(campo, 'cheques por cliente');
+  a.escolherColuna(a.doc.querySelector('.picker'), 'EMISSAO');
+  a.abrirGrupos();
+  const comEmissao = esperados.filter((r) => r.colunas.includes('EMISSAO'));
+  assert.equal(a.todos('.rel').length, comEmissao.length);
+  assert.ok(a.todos('.rel-nome').every((n) => n.textContent.toLowerCase().includes('cheques por cliente')));
+  a.fechar();
+});
+
+test('aba Colunas: renomear e "Ver relatórios" leva à pesquisa com a coluna escolhida', async () => {
+  const a = await abrirApp();
+  await a.aba('Colunas');
+  const linha = a.todos('.tabela tbody tr').find((tr) => tr.firstChild.textContent === 'VOLUME');
+  assert.ok(linha);
+  a.clicar(a.botao('Ver relatórios', linha));
+  assert.equal(a.doc.querySelector('#abas [aria-current="page"]').textContent, 'Pesquisar');
+  assert.deepEqual(a.todos('.picker .chip.editavel').map((c) => c.firstChild.textContent), ['VOLUME']);
+  a.abrirGrupos();
+  assert.equal(a.todos('.rel').length, a.store.db.relatorios.filter((r) => r.colunas.includes('VOLUME')).length);
+  a.fechar();
+});
+
+test('imagens: duas imagens por relatório (relatório e filtro), anexadas pela tela, com um ícone de cada na pesquisa', async () => {
+  const raiz0 = fs.mkdtempSync(path.join(os.tmpdir(), 'pesq-img-'));
+  const gif = path.join(raiz0, 'rel.gif');
+  const png = path.join(raiz0, 'filtro.png');
+  fs.writeFileSync(gif, Buffer.from('R0lGODlhAQABAAAAACw=', 'base64'));
+  fs.writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHb2wHwAAAABJRU5ErkJggg==', 'base64'));
+  let proxima = gif;
+  const a = await abrirApp({ abrirImagem: async () => proxima });
+  await a.aba('Relatórios');
+  const alvo = a.store.db.relatorios.find((r) => r.imagemOriginal);
+  a.clicar(a.todos('.tabela button.link').find((b) => b.textContent === alvo.nome));
+  const m = a.modal();
+  assert.equal(a.doc.querySelector('.bloco-imagem-relatorio .rotulo').textContent, 'Imagem do relatório');
+  assert.equal(a.doc.querySelector('.bloco-imagem-filtro .rotulo').textContent, 'Imagem do filtro');
+  assert.match(a.doc.querySelector('.bloco-imagem-filtro').textContent, /apontava para/, 'a dica da planilha original fica no campo do filtro');
+
+  // só a do relatório primeiro
+  a.clicar(a.botao('Anexar imagem', a.doc.querySelector('.bloco-imagem-relatorio')));
+  await esperar(() => a.doc.querySelector('.bloco-imagem-relatorio img.previa'));
+  const atual = () => a.store.db.relatorios.find((r) => r.id === alvo.id);
+  assert.ok(atual().imagem);
+  assert.equal(atual().imagemFiltro, null);
+  assert.ok(!a.doc.querySelector('.bloco-imagem-filtro img.previa'));
+
+  // agora a do filtro
+  proxima = png;
+  a.clicar(a.botao('Anexar imagem', a.doc.querySelector('.bloco-imagem-filtro')));
+  await esperar(() => a.doc.querySelector('.bloco-imagem-filtro img.previa'));
+  assert.ok(atual().imagemFiltro);
+  assert.match(atual().imagemFiltro, /\.png$/);
+  a.clicar(a.botao('Cancelar', m));
+  await esperar(() => !a.modal());
+
+  // na pesquisa: um ícone para cada imagem
+  await a.aba('Pesquisar');
+  a.escolherColuna(a.doc.querySelector('.picker'), alvo.colunas[0]);
+  a.abrirGrupos();
+  const cartao = a.todos('.rel').find((r) => r.querySelector('.rel-nome').textContent === alvo.nome);
+  const iconeRel = cartao.querySelector('.rel-icone-relatorio');
+  const iconeFiltro = cartao.querySelector('.rel-icone-filtro');
+  assert.ok(iconeRel && iconeFiltro, 'dois ícones no cartão');
+  assert.ok(!a.botao('Ver tela do filtro'), 'o botão de texto antigo não existe mais');
+
+  a.clicar(iconeRel);
+  await esperar(() => a.doc.querySelector('.modal img.previa'));
+  assert.match(a.doc.querySelector('.modal img.previa').src, /^data:image\/gif/);
+  assert.match(a.modal().textContent, /imagem do relatório/i);
+  a.clicar(a.botao('Fechar', a.modal()));
+  await esperar(() => !a.modal());
+
+  a.clicar(iconeFiltro);
+  await esperar(() => a.doc.querySelector('.modal img.previa'));
+  assert.match(a.doc.querySelector('.modal img.previa').src, /^data:image\/png/);
+  assert.match(a.modal().textContent, /imagem do filtro/i);
+  a.fechar();
+});
+
+test('pesquisa: relatório com só uma das imagens mostra só o ícone dela', async () => {
+  const raiz0 = fs.mkdtempSync(path.join(os.tmpdir(), 'pesq-img1-'));
+  const gif = path.join(raiz0, 'so.gif');
+  fs.writeFileSync(gif, Buffer.from('R0lGODlhAQABAAAAACw=', 'base64'));
+  const a = await abrirApp();
+  a.store.salvarRelatorio({ nome: 'So Filtro', modulo: 'ATIVO_ECD', colunas: ['col_so_filtro'] });
+  const rel = a.store.db.relatorios.find((r) => r.nome === 'So Filtro');
+  a.store.anexarImagem(rel.id, gif, 'filtro');
+  await a.aba('Relatórios');
+  await a.aba('Pesquisar');
+  a.escolherColuna(a.doc.querySelector('.picker'), 'col_so_filtro');
+  a.abrirGrupos();
+  assert.ok(a.doc.querySelector('.rel-icone-filtro'));
+  assert.ok(!a.doc.querySelector('.rel-icone-relatorio'));
+  a.fechar();
+});
+
+test('funcionalidade: o campo do modal salva e o ícone de interrogação mostra o texto no resultado', async () => {
+  const a = await abrirApp();
+  await a.aba('Relatórios');
+  await esperar(() => a.doc.querySelector('.tabela'));
+
+  // relatório COM funcionalidade
+  a.clicar(a.botao('Novo relatório'));
+  let m = a.modal();
+  a.digitar(m.querySelector('#campo-nome'), 'Relatório Com Função');
+  m.querySelector('#campo-modulo').value = 'ATIVO_ECD';
+  a.escolherColuna(m.querySelector('.picker'), 'coluna_func_teste');
+  a.digitar(m.querySelector('#campo-funcionalidade'), '  Mostra   os cheques do cliente.  ');
+  a.clicar(a.botao('Salvar', m));
+  await esperar(() => !a.modal());
+  assert.equal(a.store.db.relatorios.find((r) => r.nome === 'Relatório Com Função').funcionalidade, 'Mostra os cheques do cliente.');
+
+  // relatório SEM funcionalidade (campo deixado em branco)
+  a.clicar(a.botao('Novo relatório'));
+  m = a.modal();
+  a.digitar(m.querySelector('#campo-nome'), 'Relatório Sem Função');
+  m.querySelector('#campo-modulo').value = 'ATIVO_ECD';
+  a.escolherColuna(m.querySelector('.picker'), 'coluna_sem_func_teste');
+  a.clicar(a.botao('Salvar', m));
+  await esperar(() => !a.modal());
+  assert.equal(a.store.db.relatorios.find((r) => r.nome === 'Relatório Sem Função').funcionalidade, null);
+
+  await a.aba('Pesquisar');
+  a.escolherColuna(a.doc.querySelector('.picker'), 'coluna_func_teste');
+  a.abrirGrupos();
+  await esperar(() => a.doc.querySelector('.rel'));
+  const icone = a.doc.querySelector('.resultados .rel-ajuda');
+  assert.ok(icone, 'deve ter o ícone de interrogação');
+  assert.equal(icone.getAttribute('title'), null, 'não deve usar o tooltip nativo do navegador');
+  icone.dispatchEvent(new a.w.Event('mouseenter'));
+  const balao = a.doc.querySelector('.dica-flutuante');
+  assert.ok(balao && !balao.hidden, 'a caixa de dica deve aparecer ao passar o mouse');
+  assert.equal(balao.textContent, 'Mostra os cheques do cliente.');
+  icone.dispatchEvent(new a.w.Event('mouseleave'));
+  assert.ok(a.doc.querySelector('.dica-flutuante').hidden, 'a caixa de dica deve sumir ao tirar o mouse');
+
+  a.clicar(a.botao('Limpar colunas'));
+  a.escolherColuna(a.doc.querySelector('.picker'), 'coluna_sem_func_teste');
+  a.abrirGrupos();
+  await esperar(() => a.doc.querySelector('.rel'));
+  assert.ok(!a.doc.querySelector('.resultados .rel-ajuda'), 'sem funcionalidade não deve ter o ícone');
+  a.fechar();
+});
+
+test('editar relatório existente carrega a funcionalidade já salva no campo do modal', async () => {
+  const a = await abrirApp();
+  a.store.salvarRelatorio({ nome: 'Relatório Editável', modulo: 'ATIVO_ECD', colunas: ['X'], funcionalidade: 'Texto original.' });
+  await a.aba('Relatórios');
+  a.digitar(a.doc.querySelector('.barra input[type="search"]'), 'Relatório Editável');
+  await esperar(() => a.botao('Relatório Editável'));
+  a.clicar(a.botao('Relatório Editável'));
+  const m = a.modal();
+  assert.equal(m.querySelector('#campo-funcionalidade').value, 'Texto original.');
+  a.fechar();
+});
+
+test('filtros do relatório: busca e cria pelo campo (igual colunas), salva, edita de novo e carrega os valores', async () => {
+  const a = await abrirApp();
+  await a.aba('Relatórios');
+  a.clicar(a.botao('Novo relatório'));
+  let m = a.modal();
+  a.digitar(m.querySelector('#campo-nome'), 'Relatório Com Filtros');
+  m.querySelector('#campo-modulo').value = 'ATIVO_ECD';
+  a.escolherColuna(m.querySelector('.picker'), 'coluna_teste_filtro');
+
+  const pickerFiltros = () => a.todos('.picker', a.modal())[1];
+  const buscaFiltro = pickerFiltros().querySelector('input');
+  const chips = () => a.todos('.chip.editavel', pickerFiltros());
+
+  // digita um nome novo e aperta Enter -> cria o chip (tipo Texto por padrão)
+  a.digitar(buscaFiltro, 'Cliente');
+  a.tecla(buscaFiltro, 'Enter');
+  assert.equal(chips().length, 1);
+  assert.match(chips()[0].textContent, /^Cliente/);
+  assert.equal(buscaFiltro.value, '', 'o campo de busca limpa depois de adicionar');
+
+  // outro filtro novo, e ajusta o tipo pra Lista clicando no próprio chip
+  a.digitar(buscaFiltro, 'Situacao');
+  a.tecla(buscaFiltro, 'Enter');
+  assert.equal(chips().length, 2);
+  a.clicar(chips().find((c) => c.textContent.startsWith('Situacao')));
+  await esperar(() => a.todos('.modal').length === 2);
+  const modalEdicao = a.todos('.modal').at(-1);
+  assert.match(modalEdicao.textContent, /Filtro “Situacao”/);
+  const selTipo = modalEdicao.querySelector('select');
+  selTipo.value = 'lista';
+  selTipo.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  assert.equal(modalEdicao.querySelector('input[type="text"]').closest('div').hidden, false, 'campo de opções aparece só pra tipo lista');
+  a.digitar(modalEdicao.querySelector('input[type="text"]'), 'Aberto, Fechado , Pendente');
+  a.clicar(a.botao('Salvar', modalEdicao));
+  await esperar(() => a.todos('.modal').length === 1);
+
+  a.clicar(a.botao('Salvar', m));
+  await esperar(() => !a.modal());
+
+  const criado = a.store.db.relatorios.find((r) => r.nome === 'Relatório Com Filtros');
+  assert.deepEqual(criado.filtros, [
+    { nome: 'Cliente', tipo: 'texto' },
+    { nome: 'Situacao', tipo: 'lista', opcoes: ['Aberto', 'Fechado', 'Pendente'] },
+  ]);
+
+  // reabre e confere que os valores voltam certinho: os chips, e o que tem salvo em Situacao
+  a.clicar(a.botao('Relatório Com Filtros'));
+  m = a.modal();
+  const chipsReabertos = a.todos('.chip.editavel', pickerFiltros());
+  assert.equal(chipsReabertos.length, 2);
+  a.clicar(chipsReabertos.find((c) => c.textContent.startsWith('Situacao')));
+  await esperar(() => a.todos('.modal').length === 2);
+  assert.equal(a.todos('.modal').at(-1).querySelector('input[type="text"]').value, 'Aberto, Fechado, Pendente');
+  a.clicar(a.botao('Cancelar', a.todos('.modal').at(-1)));
+  await esperar(() => a.todos('.modal').length === 1);
+
+  // busca por um filtro já usado em outro relatório (via catálogo) e clica pra adicionar
+  const buscaFiltro2 = pickerFiltros().querySelector('input');
+  a.digitar(buscaFiltro2, 'Cliente');
+  buscaFiltro2.dispatchEvent(new a.w.Event('focus'));
+  assert.ok(!a.todos('.picker-menu li', pickerFiltros()).some((li) => /^Criar filtro/.test(li.textContent)), 'filtro já existente não oferece "criar", só a sugestão dele');
+  a.fechar();
+});
+
+test('Pesquisar: busca por filtro sozinha lista direto, e junto com colunas refina (E lógico)', async () => {
+  const a = await abrirApp();
+  a.store.salvarRelatorio({ nome: 'Rel Situacao Coluna A', modulo: 'ATIVO_ECD', colunas: ['coluna_situacao_a'], filtros: [{ nome: 'Situacao', tipo: 'lista', opcoes: ['Aberto'] }] });
+  a.store.salvarRelatorio({ nome: 'Rel Situacao Coluna B', modulo: 'ATIVO_ECD', colunas: ['coluna_situacao_b'], filtros: [{ nome: 'Situacao', tipo: 'texto' }] });
+  a.store.salvarRelatorio({ nome: 'Rel Sem Filtro', modulo: 'ATIVO_ECD', colunas: ['coluna_situacao_a'] });
+  await a.aba('Pesquisar');
+
+  const pickerFiltros = a.todos('.filtros section')[3].querySelector('.picker');
+  a.escolherColuna(pickerFiltros, 'Situacao');
+  assert.equal(a.todos('.rel').length, 2, 'só filtro, sem coluna: lista direto os dois que têm esse filtro');
+  const nomes = a.todos('.rel-nome').map((n) => n.textContent);
+  assert.ok(nomes.includes('Rel Situacao Coluna A') && nomes.includes('Rel Situacao Coluna B'));
+  assert.ok(!nomes.includes('Rel Sem Filtro'), 'esse não tem o filtro, mesmo tendo a coluna');
+
+  // junto com a coluna que só um dos dois tem: refina pra 1 (E lógico)
+  a.escolherColuna(a.doc.querySelectorAll('.picker')[0], 'coluna_situacao_a');
+  a.abrirGrupos();
+  assert.equal(a.todos('.rel').length, 1);
+  assert.equal(a.doc.querySelector('.rel-nome').textContent, 'Rel Situacao Coluna A');
+  a.fechar();
+});
+
+test('sem filtros cadastrados, o campo de busca por filtro não acha nada pra sugerir (mas não quebra)', async () => {
+  const a = await abrirApp();
+  await a.aba('Pesquisar');
+  const pickerFiltros = a.todos('.filtros section')[3].querySelector('.picker');
+  const entrada = pickerFiltros.querySelector('input');
+  entrada.focus();
+  assert.match(pickerFiltros.querySelector('.picker-menu').textContent, /Nenhum/);
+  a.fechar();
+});
+
+test('módulo: marcar mais de um junta os relatórios dos dois (não é só o primeiro)', async () => {
+  const a = await abrirApp();
+  a.clicar(a.doc.querySelector('.modulo-cabecalho'));
+  a.clicar(a.todos('.segmento-linha').find((l) => l.textContent.startsWith('ATIVO_LOG_EFD')).querySelector('input'));
+  a.clicar(a.todos('.segmento-linha').find((l) => l.textContent.startsWith('ATIVO_WMS')).querySelector('input'));
+
+  const esperado = B.pesquisar(
+    a.store.db.relatorios.filter((r) => r.modulo === 'ATIVO_LOG_EFD' || r.modulo === 'ATIVO_WMS'),
+    { modulo: '*', colunas: ['NF'] }
+  );
+  a.escolherColuna(a.doc.querySelector('.picker'), 'NF');
+  a.abrirGrupos();
+  assert.equal(a.todos('.rel').length, esperado.total);
+  assert.ok(a.todos('.rel-modulo').some((m) => m.textContent === 'ATIVO_LOG_EFD') || esperado.total === 0);
+  assert.ok(a.todos('.rel-modulo').every((m) => m.textContent === 'ATIVO_LOG_EFD' || m.textContent === 'ATIVO_WMS'));
+  a.fechar();
+});
+
+test('aba Dados: mostra caminhos, faz backup manual e restaura', async () => {
+  const a = await abrirApp();
+  await a.aba('Configurações');
+  await esperar(() => a.doc.querySelector('.tabela'));
+  assert.ok(a.doc.body.textContent.includes(a.store.pastaDados));
+  assert.ok(a.doc.body.textContent.includes(a.store.pastaBackup));
+  const antes = a.todos('.tabela tbody tr').length;
+  a.clicar(a.botao('Fazer backup agora'));
+  await esperar(() => a.todos('.tabela tbody tr').length === antes + 1);
+
+  // altera algo, restaura o backup manual e confere
+  a.store.adicionarModulo('SO_DEPOIS');
+  const linhaManual = a.todos('.tabela tbody tr').find((tr) => tr.textContent.includes('Manual'));
+  a.clicar(a.botao('Restaurar', linhaManual));
+  await esperar(() => a.modal());
+  a.clicar(a.botao('Restaurar', a.modal()));
+  await esperar(() => !a.store.db.modulos.includes('SO_DEPOIS'));
+  a.fechar();
+});
+
+test('atualização: banner aparece quando há versão nova, atualiza com o progresso e muda ao terminar de baixar', async () => {
+  const a = await abrirApp();
+  assert.equal(a.doc.querySelector('#banner-atualizacao').hidden, true);
+
+  a.dispararAtualizacao({ tipo: 'disponivel', versao: '1.2.0' });
+  const banner = a.doc.querySelector('#banner-atualizacao');
+  assert.equal(banner.hidden, false);
+  assert.match(banner.textContent, /1\.2\.0/);
+  assert.ok(a.botao('Baixar agora', banner));
+
+  a.dispararAtualizacao({ tipo: 'progresso', percentual: 42 });
+  assert.match(a.doc.querySelector('#banner-atualizacao').textContent, /42%/);
+
+  a.dispararAtualizacao({ tipo: 'baixada' });
+  const banner2 = a.doc.querySelector('#banner-atualizacao');
+  assert.equal(banner2.hidden, false);
+  assert.match(banner2.textContent, /Reinicie/);
+  assert.ok(a.botao('Reiniciar agora', banner2));
+
+  a.clicar(a.botao('Depois', banner2));
+  assert.equal(a.doc.querySelector('#banner-atualizacao').hidden, true);
+  a.fechar();
+});
+
+test('atualização: sem versão nova ou com erro, não incomoda com banner', async () => {
+  const a = await abrirApp();
+  a.dispararAtualizacao({ tipo: 'nenhuma' });
+  assert.equal(a.doc.querySelector('#banner-atualizacao').hidden, true);
+  a.dispararAtualizacao({ tipo: 'erro', mensagem: 'sem internet' });
+  assert.equal(a.doc.querySelector('#banner-atualizacao').hidden, true);
+  a.fechar();
+});
+
+test('atualização: botão manual na aba Dados avisa quando é modo de desenvolvimento', async () => {
+  const a = await abrirApp();
+  await a.aba('Configurações');
+  await esperar(() => a.botao('Verificar atualizações'));
+  a.clicar(a.botao('Verificar atualizações'));
+  await esperar(() => a.todos('.aviso').some((el) => /modo de desenvolvimento/.test(el.textContent)));
+  a.fechar();
+});
+
+test('nomes de coluna com HTML aparecem como texto, nunca como código', async () => {
+  const a = await abrirApp();
+  a.store.salvarRelatorio({ nome: 'Teste XSS', modulo: 'ATIVO_ECD', colunas: ['<IMG SRC=X ONERROR=ALERT(1)>'] });
+  await a.aba('Relatórios');
+  await a.aba('Pesquisar');
+  const picker = a.doc.querySelector('.picker');
+  a.escolherColuna(picker, 'IMG SRC');
+  a.abrirGrupos();
+  assert.equal(a.doc.querySelectorAll('.resultados img').length, 0);
+  assert.ok(a.doc.querySelector('.rel .chip').textContent.includes('<IMG SRC=X'));
+  a.fechar();
+});
+
+test('importar relatórios por CSV: guia de formato, prévia com novo/atualiza/erro/duplicata, e importação de verdade', async () => {
+  const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'pesq-csv-ui-'));
+  const arquivo = path.join(raiz, 'lote.csv');
+
+  const a = await abrirApp({ abrirCSV: async () => arquivo });
+  const existente = a.store.db.relatorios[0]; // vai virar "atualiza"
+
+  const conteudo =
+    'MODULO;NOME;FUNCIONALIDADE;COLUNAS\n' +
+    'ATIVO_TESTE_CSV;Relatorio Novo;Primeira versão da linha.;"COL_A;COL_B"\n' +
+    'ATIVO_TESTE_CSV;Relatorio Novo;Segunda versão (essa que vale).;"COL_C"\n' +
+    'ATIVO_ECD;;;"COL_X"\n' +
+    `${existente.modulo};${existente.nome};Atualizado pelo CSV.;"COL_ATUALIZADA"\n`;
+  fs.writeFileSync(arquivo, conteudo, 'utf8');
+
+  await a.aba('Configurações');
+  await esperar(() => a.botao('Importar relatórios (CSV)'));
+  a.clicar(a.botao('Importar relatórios (CSV)'));
+  await esperar(() => a.modal());
+  assert.match(a.modal().textContent, /MODULO/);
+  assert.match(a.modal().textContent, /COLUNAS/);
+
+  a.clicar(a.botao('Escolher arquivo…', a.modal()));
+  await esperar(() => a.modal() && /Confirmar importação/.test(a.modal().textContent));
+
+  const modal = a.modal();
+  // 2 novos (o "Relatorio Novo" que venceu a duplicata + a atualização não conta aqui), 1 atualizado, 1 com erro, 1 módulo novo
+  assert.match(modal.textContent, /duplicata|mesmo relatório/i, 'deve avisar sobre a linha duplicada no arquivo');
+  const linhas = a.todos('tbody tr', modal);
+  assert.equal(linhas.length, 3); // a linha 2 (duplicada, substituída) não aparece na tabela
+  assert.ok(!modal.textContent.includes('Primeira versão da linha'));
+
+  const botaoImportar = [...modal.querySelectorAll('.btn')].find((b) => /^Importar \d+/.test(b.textContent));
+  assert.ok(botaoImportar, 'botão de importar deve mostrar a quantidade válida (2)');
+  assert.match(botaoImportar.textContent, /^Importar 2/);
+
+  a.clicar(botaoImportar);
+  await esperar(() => !a.modal());
+
+  assert.ok(a.store.db.modulos.includes('ATIVO_TESTE_CSV'));
+  const criado = a.store.db.relatorios.find((r) => r.nome === 'Relatorio Novo');
+  assert.ok(criado);
+  assert.deepEqual(criado.colunas, ['COL_C']); // a versão que "venceu" foi a segunda linha
+  assert.equal(criado.funcionalidade, 'Segunda versão (essa que vale).');
+
+  const atualizado = a.store.db.relatorios.find((r) => r.id === existente.id);
+  assert.deepEqual(atualizado.colunas, ['COL_ATUALIZADA']);
+  assert.equal(atualizado.funcionalidade, 'Atualizado pelo CSV.');
+
+  assert.equal(a.store.db.relatorios.some((r) => !r.nome), false); // a linha com erro (sem nome) não foi importada
+  a.fechar();
+});
+
+test('importar relatórios por CSV: arquivo com cabeçalho errado mostra aviso e não abre a prévia', async () => {
+  const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'pesq-csv-erro-'));
+  const arquivo = path.join(raiz, 'ruim.csv');
+  fs.writeFileSync(arquivo, 'A,B,C\n1,2,3\n', 'utf8');
+
+  const a = await abrirApp({ abrirCSV: async () => arquivo });
+  await a.aba('Configurações');
+  await esperar(() => a.botao('Importar relatórios (CSV)'));
+  a.clicar(a.botao('Importar relatórios (CSV)'));
+  await esperar(() => a.modal());
+  a.clicar(a.botao('Escolher arquivo…', a.modal()));
+  await esperar(() => a.doc.querySelector('.aviso.erro'));
+  assert.match(a.doc.querySelector('.aviso.erro').textContent, /MODULO/);
+  assert.ok(!a.modal(), 'não deve abrir a prévia com o cabeçalho errado');
+  a.fechar();
+});
+
+test('importar relatórios por CSV: botão "Baixar modelo" chama a ação certa', async () => {
+  const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'pesq-csv-modelo-'));
+  const destino = path.join(raiz, 'modelo.csv');
+  const a = await abrirApp({ salvarCSV: async () => destino });
+  await a.aba('Configurações');
+  await esperar(() => a.botao('Importar relatórios (CSV)'));
+  a.clicar(a.botao('Importar relatórios (CSV)'));
+  await esperar(() => a.modal());
+  a.clicar(a.botao('Baixar modelo (.csv)', a.modal()));
+  await esperar(() => fs.existsSync(destino));
+  assert.match(fs.readFileSync(destino, 'utf8'), /MODULO;NOME;FUNCIONALIDADE;COLUNAS/);
+  a.fechar();
+});
+
+test('Configurações: status da nuvem some quando não configurada, e mostra sincronizado + quem está logado quando está', async () => {
+  const nuvemDesligada = { status: () => ({ leituraAtiva: false, autenticado: false, email: null, papel: null, sincronizando: false, ultimoErro: null }) };
+  const a1 = await abrirApp({}, { nuvem: nuvemDesligada });
+  await a1.aba('Configurações');
+  await esperar(() => a1.doc.querySelector('.tabela'));
+  assert.match(a1.doc.querySelector('.tela-larga').textContent, /não tem a nuvem configurada/);
+  a1.fechar();
+
+  const nuvemLigada = {
+    entrar: async (email) => ({ email, papel: 'editor' }),
+    sair: async () => {},
+    status: () => ({ leituraAtiva: true, autenticado: true, email: 'editor@x.com', papel: 'editor', sincronizando: false, ultimoErro: null }),
+  };
+  const a2 = await abrirApp({}, { nuvem: nuvemLigada });
+  await a2.destravarMenu('editor@x.com', 'qualquer');
+  await a2.aba('Configurações');
+  await esperar(() => a2.doc.querySelector('.tabela'));
+  assert.match(a2.doc.querySelector('.tela-larga').textContent, /Sincronizado/);
+  assert.match(a2.doc.querySelector('.tela-larga').textContent, /editor@x\.com/);
+  assert.ok(a2.botao('Enviar dados desta máquina para a nuvem'), 'logado, mostra o botão de enviar tudo');
+  assert.equal(a2.todos('h2').some((h2) => h2.textContent === 'Usuários'), false, 'editor não vê o painel de usuários');
+  a2.fechar();
+});
+
+test('Configurações: "Enviar dados desta máquina" pede confirmação e chama nuvemEnviarTudo', async () => {
+  let chamou = false;
+  const nuvem = {
+    entrar: async () => ({ email: 'a@a.com', papel: 'admin' }),
+    sair: async () => {},
+    status: () => ({ leituraAtiva: true, autenticado: true, email: 'a@a.com', papel: 'admin', sincronizando: false, ultimoErro: null }),
+    enviarTudo: async () => { chamou = true; return { alterados: true }; },
+    listarUsuarios: async () => [],
+  };
+  const a = await abrirApp({}, { nuvem });
+  await a.destravarMenu('a@a.com', 'qualquer');
+  await a.aba('Configurações');
+  await esperar(() => a.botao('Enviar dados desta máquina para a nuvem'));
+  a.clicar(a.botao('Enviar dados desta máquina para a nuvem'));
+  await esperar(() => a.modal());
+  a.clicar(a.botao('Enviar', a.modal()));
+  await esperar(() => chamou);
+  a.fechar();
+});
+
+test('Configurações: painel de Usuários (só admin) lista, cria, troca papel e exclui', async () => {
+  let usuarios = [{ email: 'ja@existe.com', papel: 'editor' }];
+  const chamadas = [];
+  const nuvem = {
+    entrar: async () => ({ email: 'adm@x.com', papel: 'admin' }),
+    sair: async () => {},
+    status: () => ({ leituraAtiva: true, autenticado: true, email: 'adm@x.com', papel: 'admin', sincronizando: false, ultimoErro: null }),
+    listarUsuarios: async () => usuarios,
+    criarUsuario: async (email, senha, papel) => { chamadas.push(['criar', email, papel]); usuarios = [...usuarios, { email, papel }]; return { ok: true }; },
+    definirPapelDeUsuario: async (email, papel) => { chamadas.push(['papel', email, papel]); usuarios = usuarios.map((u) => (u.email === email ? { ...u, papel } : u)); return { ok: true }; },
+    excluirUsuario: async (email) => { chamadas.push(['excluir', email]); usuarios = usuarios.filter((u) => u.email !== email); return { ok: true }; },
+  };
+  const a = await abrirApp({}, { nuvem });
+  await a.destravarMenu('adm@x.com', 'qualquer');
+  await a.aba('Configurações');
+  const painelUsuarios = () => a.todos('.painel').find((p) => p.querySelector('h2') && p.querySelector('h2').textContent === 'Usuários');
+  await esperar(() => painelUsuarios() && painelUsuarios().querySelector('.tabela tbody tr'));
+  assert.match(painelUsuarios().querySelector('.tabela tbody').textContent, /ja@existe\.com/);
+
+  a.clicar(a.botao('Novo usuário'));
+  await esperar(() => a.modal());
+  a.digitar(a.modal().querySelector('#novo-usuario-email'), 'novo@x.com');
+  a.digitar(a.modal().querySelector('#novo-usuario-senha'), 'senha123');
+  a.clicar(a.botao('Criar', a.modal()));
+  await esperar(() => chamadas.some((c) => c[0] === 'criar'));
+  assert.deepEqual(chamadas[0], ['criar', 'novo@x.com', 'editor']);
+
+  await esperar(() => painelUsuarios().querySelector('.tabela tbody').textContent.includes('novo@x.com'));
+  const linha = a.todos('.tabela tbody tr', painelUsuarios()).find((tr) => tr.textContent.includes('ja@existe.com'));
+  a.clicar(a.botao('Tornar admin', linha));
+  await esperar(() => a.modal());
+  a.clicar(a.botao('Trocar', a.modal()));
+  await esperar(() => chamadas.some((c) => c[0] === 'papel'));
+
+  const linha2 = a.todos('.tabela tbody tr', painelUsuarios()).find((tr) => tr.textContent.includes('ja@existe.com'));
+  a.clicar(a.botao('Excluir', linha2));
+  await esperar(() => a.modal());
+  a.clicar(a.botao('Excluir', a.modal()));
+  await esperar(() => chamadas.some((c) => c[0] === 'excluir'));
+  a.fechar();
+});
+
+test('regressão: vários eventos de status da nuvem seguidos NÃO ficam redesenhando a tela sozinhos (evita o loop de "Gateway Timeout")', async () => {
+  let chamadasListarUsuarios = 0;
+  const nuvem = {
+    entrar: async () => ({ email: 'adm@x.com', papel: 'admin' }),
+    sair: async () => {},
+    status: () => ({ leituraAtiva: true, autenticado: true, email: 'adm@x.com', papel: 'admin', sincronizando: false, ultimoErro: null }),
+    listarUsuarios: async () => { chamadasListarUsuarios++; return []; },
+  };
+  const a = await abrirApp({}, { nuvem });
+  await a.destravarMenu('adm@x.com', 'qualquer');
+  await a.aba('Configurações');
+  await esperar(() => chamadasListarUsuarios === 1); // carregou o painel de usuários uma vez, ao entrar na aba
+
+  // simula uma sequência de status indo e voltando (o que acontece de verdade quando algo falha)
+  for (let i = 0; i < 10; i++) {
+    a.dispararStatusNuvem({ leituraAtiva: true, autenticado: true, email: 'adm@x.com', papel: 'admin', sincronizando: i % 2 === 0, ultimoErro: i % 2 === 0 ? 'Gateway Timeout' : null });
+  }
+  await new Promise((r) => setTimeout(r, 20));
+
+  assert.equal(chamadasListarUsuarios, 1, 'não deve ter recarregado o painel de usuários sozinho a cada status');
+  assert.equal(a.todos('.aviso.erro').length, 0, 'não deve ter empilhado avisos de erro sozinho');
+  a.fechar();
+});
+
+test('interruptor de tema: começa claro, clicar muda pra escuro (aplica na hora e salva), clicar de novo volta', async () => {
+  const a = await abrirApp();
+  const interruptor = a.doc.querySelector('.tema-interruptor');
+  assert.ok(interruptor, 'o interruptor aparece perto da versão');
+  assert.equal(a.doc.documentElement.getAttribute('data-tema'), 'claro');
+  assert.equal(interruptor.getAttribute('aria-pressed'), 'false');
+  assert.equal(a.todos('svg', interruptor).length, 2, 'tem os dois ícones (sol e lua)');
+
+  a.clicar(interruptor);
+  await esperar(() => a.doc.documentElement.getAttribute('data-tema') === 'escuro');
+  assert.equal(interruptor.getAttribute('aria-pressed'), 'true');
+  assert.equal(a.store.db.tema, 'escuro');
+
+  a.clicar(interruptor);
+  await esperar(() => a.doc.documentElement.getAttribute('data-tema') === 'claro');
+  assert.equal(interruptor.getAttribute('aria-pressed'), 'false');
+  assert.equal(a.store.db.tema, 'claro');
+  a.fechar();
+});
+
+test('tema escuro salvo antes continua escuro quando o programa abre de novo', async () => {
+  const a1 = await abrirApp();
+  a1.store.definirTema('escuro');
+  a1.fechar();
+
+  const a2 = await abrirApp({}, { raiz: a1.raiz });
+  assert.equal(a2.doc.documentElement.getAttribute('data-tema'), 'escuro');
+  assert.equal(a2.doc.querySelector('.tema-interruptor').getAttribute('aria-pressed'), 'true');
+  a2.fechar();
+});
+
+test('Novo relatório: já dá pra escolher as duas imagens (com prévia) antes de salvar, e elas são anexadas de verdade ao criar', async () => {
+  const raiz0 = fs.mkdtempSync(path.join(os.tmpdir(), 'pesq-img-novo-'));
+  const gif = path.join(raiz0, 'rel.gif');
+  const png = path.join(raiz0, 'filtro.png');
+  fs.writeFileSync(gif, Buffer.from('R0lGODlhAQABAAAAACw=', 'base64'));
+  fs.writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHb2wHwAAAABJRU5ErkJggg==', 'base64'));
+  let proxima = gif;
+  const a = await abrirApp({ abrirImagem: async () => proxima });
+  await a.aba('Relatórios');
+  a.clicar(a.botao('Novo relatório'));
+  const m = a.modal();
+  assert.ok(a.botao('Anexar imagem', m), 'já dá pra escolher, mesmo sem ter salvo ainda');
+  assert.match(m.textContent, /só são salvas de verdade quando você clicar em Salvar/);
+
+  a.clicar(a.botao('Anexar imagem', m.querySelector('.bloco-imagem-relatorio')));
+  await esperar(() => m.querySelector('.bloco-imagem-relatorio img.previa'));
+
+  proxima = png;
+  a.clicar(a.botao('Anexar imagem', m.querySelector('.bloco-imagem-filtro')));
+  await esperar(() => m.querySelector('.bloco-imagem-filtro img.previa'));
+
+  // nada foi anexado de verdade ainda — não existe relatório nenhum com esse nome
+  assert.ok(!a.store.db.relatorios.some((r) => r.nome === 'Rel Com Imagem De Cara'));
+
+  a.digitar(m.querySelector('#campo-nome'), 'Rel Com Imagem De Cara');
+  m.querySelector('#campo-modulo').value = 'ATIVO_ECD';
+  a.escolherColuna(m.querySelector('.picker'), 'coluna_img_de_cara');
+  a.clicar(a.botao('Salvar', m));
+  // espera o modal fechar de vez — o clique de Salvar só fecha depois de criar o relatório E anexar
+  // as duas imagens pendentes; esperar só pelo nome pegaria um instante intermediário (ainda sem imagem).
+  await esperar(() => !a.modal());
+
+  const criado = a.store.db.relatorios.find((r) => r.nome === 'Rel Com Imagem De Cara');
+  assert.ok(criado.imagem && criado.imagemFiltro, 'as duas já vieram anexadas no relatório recém-criado');
+  a.fechar();
+});
+
+test('Editar relatório existente: upload de imagem aparece normal (não é afetado pela mudança acima)', async () => {
+  const a = await abrirApp();
+  a.store.salvarRelatorio({ nome: 'Rel Pra Editar', modulo: 'ATIVO_ECD', colunas: ['A'] });
+  await a.aba('Relatórios');
+  a.clicar(a.botao('Rel Pra Editar'));
+  const m = a.modal();
+  assert.equal(a.todos('.btn', m).filter((b) => b.textContent === 'Anexar imagem').length, 2, 'as duas (relatório e filtro)');
+  assert.ok(!m.textContent.includes('Salve o relatório primeiro'));
+  a.fechar();
+});
+
+test('painel de Usuários: a conta mestra (patrimonio@patrimonio.com) não mostra "Tornar editor" nem "Excluir"', async () => {
+  const nuvem = {
+    entrar: async () => ({ email: 'patrimonio@patrimonio.com', papel: 'admin' }),
+    sair: async () => {},
+    status: () => ({ leituraAtiva: true, autenticado: true, email: 'patrimonio@patrimonio.com', papel: 'admin', sincronizando: false, ultimoErro: null }),
+    listarUsuarios: async () => [
+      { email: 'patrimonio@patrimonio.com', papel: 'admin' },
+      { email: 'editor@x.com', papel: 'editor' },
+    ],
+  };
+  const a = await abrirApp({}, { nuvem });
+  await a.destravarMenu('patrimonio@patrimonio.com', 'qualquer');
+  await a.aba('Configurações');
+  const painelUsuarios = () => a.todos('.painel').find((p) => p.querySelector('h2') && p.querySelector('h2').textContent === 'Usuários');
+  await esperar(() => painelUsuarios() && painelUsuarios().querySelector('.tabela tbody tr'));
+
+  const linhaMestra = a.todos('.tabela tbody tr', painelUsuarios()).find((tr) => tr.textContent.includes('patrimonio@patrimonio.com'));
+  assert.match(linhaMestra.textContent, /Mestra/);
+  assert.ok(!a.botao('Tornar editor', linhaMestra));
+  assert.ok(!a.botao('Excluir', linhaMestra));
+  assert.ok(a.botao('Redefinir senha', linhaMestra), 'essa continua podendo');
+
+  const linhaEditor = a.todos('.tabela tbody tr', painelUsuarios()).find((tr) => tr.textContent.includes('editor@x.com'));
+  assert.ok(a.botao('Tornar admin', linhaEditor), 'outras contas continuam normais');
+  assert.ok(a.botao('Excluir', linhaEditor));
+  a.fechar();
+});

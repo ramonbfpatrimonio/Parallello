@@ -1,0 +1,135 @@
+import { BrowserWindow, dialog, type IpcMainInvokeEvent } from 'electron'
+import { readFile, writeFile } from 'fs/promises'
+import type { DadosConexaoNuvem, PedidoEnvio, PerfilConexao } from '@shared/tipos'
+import * as conexoes from './conexoes'
+import * as db from './db'
+import * as erp from './erp'
+import { lerPdf } from './pdf'
+import * as offline from './offline'
+import * as aparencia from './aparencia'
+
+type Resposta<T> = { ok: true; dados: T } | { ok: false; erro: string }
+
+/** Registra um handler que devolve {ok, dados|erro} (mensagens limpas na tela). */
+export interface IpcModulo {
+  handle(canal: string, fn: (e: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void
+}
+
+let ipcMain: IpcModulo
+
+function handle<A extends unknown[], T>(canal: string, fn: (...args: A) => Promise<T> | T) {
+  ipcMain.handle(canal, async (_e, ...args: unknown[]): Promise<Resposta<T>> => {
+    try {
+      return { ok: true, dados: await fn(...(args as A)) }
+    } catch (e) {
+      return { ok: false, erro: db.mensagemAmigavel((e as Error)?.message ?? String(e)) }
+    }
+  })
+}
+
+async function perfilESenha(id: string) {
+  return conexoes.obterPerfil(id)
+}
+
+export function registrarIpc(ipc: IpcModulo, janela: () => BrowserWindow | null) {
+  ipcMain = ipc
+  // ---------------- conexões ----------------
+  handle('conexoes:listar', () => conexoes.listarPerfis())
+  handle('conexoes:salvar', async (perfil: PerfilConexao, senha?: string) => {
+    const salvo = await conexoes.salvarPerfil(perfil, senha)
+    await db.fecharPool(salvo.id)
+    return salvo
+  })
+  handle('conexoes:excluir', async (id: string) => {
+    await db.fecharPool(id)
+    await conexoes.excluirPerfil(id)
+  })
+  handle('conexoes:testar', async (perfil: PerfilConexao, senha?: string) => {
+    return db.testar(perfil, await conexoes.senhaParaTeste(perfil, senha))
+  })
+  handle('conexoes:nativoDisponivel', () => db.nativoDisponivel())
+  handle('conexoes:sincronizar', async (empresaId: string, lista: DadosConexaoNuvem[]) => {
+    await conexoes.sincronizar(empresaId, lista)
+    await db.fecharTodos() // cadastro pode ter mudado: reconecta na próxima consulta
+  })
+  handle('conexoes:salvarSenha', async (id: string, senha: string) => {
+    const r = await conexoes.salvarSenha(id, senha)
+    await db.fecharPool(id)
+    return r
+  })
+
+  // ---------------- modo offline ----------------
+  handle('offline:lembrar', (email: string, senha: string, perfil: offline.PerfilOffline) => offline.lembrar(email, senha, perfil))
+  handle('offline:atualizarPerfil', (perfil: offline.PerfilOffline) => offline.atualizarPerfil(perfil))
+  handle('offline:entrar', (email: string, senha: string) => offline.entrar(email, senha))
+  handle('offline:perfilPorId', (id: string) => offline.perfilPorId(id))
+  handle('offline:esquecer', (email: string) => offline.esquecer(email))
+  handle('fila:adicionar', (r: Record<string, unknown> & { chave_local: string }) => offline.filaAdicionar(r))
+  handle('fila:listar', () => offline.filaListar())
+  handle('fila:remover', (chaves: string[]) => offline.filaRemover(chaves))
+  handle('conexoes:exportar', async (ids: string[], senhaArquivo: string) => {
+    const conteudo = await conexoes.exportar(ids, senhaArquivo)
+    const r = await dialog.showSaveDialog(janela()!, {
+      title: 'Exportar conexões',
+      defaultPath: 'conexoes.gpvconn',
+      filters: [{ name: 'Conexões Gerar Pré-Venda', extensions: ['gpvconn'] }]
+    })
+    if (r.canceled || !r.filePath) return false
+    await writeFile(r.filePath, conteudo, 'utf8')
+    return true
+  })
+  handle('conexoes:importar', async (senhaArquivo: string) => {
+    const r = await dialog.showOpenDialog(janela()!, {
+      title: 'Importar conexões',
+      properties: ['openFile'],
+      filters: [{ name: 'Conexões Gerar Pré-Venda', extensions: ['gpvconn'] }]
+    })
+    if (r.canceled || !r.filePaths[0]) return 0
+    return conexoes.importar(await readFile(r.filePaths[0], 'utf8'), senhaArquivo)
+  })
+
+  // ---------------- PDF ----------------
+  handle('pdf:abrir', async () => {
+    const r = await dialog.showOpenDialog(janela()!, {
+      title: 'Abrir pedido de compra (PDF)',
+      properties: ['openFile'],
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    return lerPdf(r.filePaths[0])
+  })
+  handle('pdf:ler', (caminho: string) => lerPdf(caminho))
+
+  // ---------------- ERP ----------------
+  handle('erp:produtos', async (id: string, codigos: string[]) => {
+    const { perfil, senha } = await perfilESenha(id)
+    return erp.buscarProdutos(perfil, senha, codigos)
+  })
+  handle('erp:cliente', async (id: string, cnpj: string) => {
+    const { perfil, senha } = await perfilESenha(id)
+    return erp.buscarCliente(perfil, senha, cnpj)
+  })
+  handle('erp:verificarPedido', async (id: string, cliente: string, pedido: string) => {
+    const { perfil, senha } = await perfilESenha(id)
+    return erp.verificarPedido(perfil, senha, cliente, pedido)
+  })
+  handle('erp:limitePedido', async (id: string) => {
+    const { perfil, senha } = await perfilESenha(id)
+    return erp.limitePedidoCompra(perfil, senha)
+  })
+  handle('erp:status', async (id: string) => {
+    const { perfil, senha } = await perfilESenha(id)
+    const c = await db.obterConexao(perfil, senha)
+    await c.pool.request().query('SELECT 1 AS ok')
+    return c.driver
+  })
+  handle('erp:gerar', async (id: string, envio: PedidoEnvio) => {
+    const { perfil, senha } = await perfilESenha(id)
+    return erp.gerarPreVenda(perfil, senha, envio)
+  })
+  handle('sistema:estacao', () => erp.estacao())
+
+  // ---------------- aparência (só deste computador) ----------------
+  handle('aparencia:ler', () => aparencia.lerAparencia())
+  handle('aparencia:salvar', (a: aparencia.Aparencia | null) => aparencia.salvarAparencia(a))
+}

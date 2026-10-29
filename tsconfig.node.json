@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "strict": true, "esModuleInterop": true, "skipLibCheck": true, "resolveJsonModule": true,
+    "types": ["node"], "noEmit": true, "baseUrl": ".",
+    "paths": { "@shared/*": ["src/modulos/gerar-pre-venda/shared/*"] }
+  },
+  "include": ["src/modulos/gerar-pre-venda/main/**/*", "src/modulos/gerar-pre-venda/preload/**/*", "src/modulos/gerar-pre-venda/shared/**/*", "src/modulos/gerar-pre-venda/tests/**/*"]
+}
