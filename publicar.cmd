@@ -34,7 +34,8 @@ call npm test || (echo Os testes falharam. Nada foi publicado. & pause & exit /b
 git add -A
 git diff --cached --quiet || git commit -m "Alterações para a próxima versão"
 
-call npm version %TIPO% -m "Versão %%s" || (pause & exit /b 1)
+rem sem -m: o "call" come o %%s da mensagem (saía "Versão s"); o padrão do npm já usa o número da versão
+call npm version %TIPO% || (pause & exit /b 1)
 
 git push origin HEAD --follow-tags || (echo Nao foi possivel enviar para o GitHub. & pause & exit /b 1)
 
