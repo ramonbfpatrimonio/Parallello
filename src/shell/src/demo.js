@@ -1,7 +1,7 @@
 // Ponte falsa, só para ver a tela no navegador (sem Electron): npm run dev e abra /shell/index.html
 export function criarPonteDemo() {
   const sessaoVazia = { logado: false, ultimoUsuario: 'administrador' }
-  let estado = { versao: '1.0.0', atual: null, abas: [], erros: {}, atualizacao: { tipo: 'parado' }, sessao: sessaoVazia }
+  let estado = { versao: '1.0.0', atual: null, abas: [], erros: {}, atualizacao: /atualizacao/.test(location.search) ? { tipo: 'disponivel', versao: '1.0.6' } : { tipo: 'parado' }, sessao: sessaoVazia }
   let usuarios = [
     { id: 'master', nome: 'Administrador (senha master)', usuario: 'administrador', papel: 'master', ativo: true, modulos: [], local: true },
     { id: 'u1', nome: 'Deyse Lima', usuario: 'deyse', papel: 'admin', ativo: true, modulos: ['gerar-pre-venda'] },
@@ -46,7 +46,19 @@ export function criarPonteDemo() {
       eventos: async () => [],
       conexoes: async () => ({ empresa: { id: 'e1', nome: 'Hage' }, nuvem: false, perfis: [], locais: [], nativo: false })
     },
-    atualizacao: { verificar: async () => ({}), baixar: async () => true, instalar: async () => true },
+    atualizacao: {
+      verificar: async () => ({}),
+      baixar: async () => {
+        let p = 0
+        const t = setInterval(() => {
+          p += 20
+          mudar({ atualizacao: p >= 100 ? { tipo: 'pronta', versao: '1.0.6' } : { tipo: 'baixando', percentual: p, versao: '1.0.6' } })
+          if (p >= 100) clearInterval(t)
+        }, 300)
+        return true
+      },
+      instalar: async () => true,
+    },
     aoMudar: (fn) => {
       ouvintes.add(fn)
       return () => ouvintes.delete(fn)

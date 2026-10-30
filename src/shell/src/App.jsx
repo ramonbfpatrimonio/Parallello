@@ -93,7 +93,13 @@ export function App() {
 
   if (abertura) return <Preloader aoTerminar={terminarAbertura} />
   if (!estado) return null
-  if (!logado) return <Login ultimoUsuario={estado.sessao?.ultimoUsuario} versao={estado.versao} />
+  if (!logado)
+    return (
+      <>
+        <Login ultimoUsuario={estado.sessao?.ultimoUsuario} versao={estado.versao} />
+        <AvisoAtualizacao a={estado.atualizacao} atual={estado.versao} />
+      </>
+    )
 
   const sessao = estado.sessao
   const abrir = async (id) => {
@@ -122,6 +128,7 @@ export function App() {
         </Modal>
       )}
       {pedirMaster && <SenhaMaster aoFechar={() => setPedirMaster(false)} />}
+      <AvisoAtualizacao a={estado.atualizacao} atual={estado.versao} />
 
       <div className="avisos" role="status" aria-live="polite">
         {avisos.map((a) => (
@@ -303,6 +310,70 @@ function InterruptorTema() {
         <span className="interruptor-bola" />
       </span>
     </button>
+  )
+}
+
+/**
+ * Aviso de atualização no meio da tela, por cima de tudo (inclusive dos sistemas abertos).
+ * "Depois" esconde até a próxima etapa (quando terminar de baixar, ele aparece de novo).
+ */
+function AvisoAtualizacao({ a, atual }) {
+  const [dispensado, setDispensado] = useState(null)
+  const [erro, setErro] = useState(null)
+  const chave = `${a?.tipo}:${a?.versao}`
+  const visivel = ['disponivel', 'baixando', 'pronta'].includes(a?.tipo) && dispensado !== chave
+  useEffect(() => {
+    if (!visivel) return
+    api().cobrir(true)
+    return () => api().cobrir(false)
+  }, [visivel])
+  if (!visivel) return null
+  const depois = () => setDispensado(chave)
+  const executar = async (fn) => {
+    setErro(null)
+    try {
+      await fn()
+    } catch (e) {
+      setErro(mensagem(e))
+    }
+  }
+  return (
+    <div className="atualizar-fundo">
+      <div className="atualizar" role="alertdialog" aria-modal="true" aria-labelledby="atualizar-titulo">
+        <img src={marca} alt="" className="atualizar-marca" />
+        {a.tipo === 'disponivel' && (
+          <>
+            <h2 id="atualizar-titulo">Nova versão do Parallello</h2>
+            <p>A versão <b>{a.versao}</b> está disponível{atual ? <> (você está na {atual})</> : null}. Atualize para receber as correções e novidades.</p>
+            <div className="atualizar-acoes">
+              <button className="botao" onClick={depois}>Depois</button>
+              <button className="botao primario" onClick={() => executar(() => api().atualizacao.baixar())} autoFocus>Atualizar agora</button>
+            </div>
+          </>
+        )}
+        {a.tipo === 'baixando' && (
+          <>
+            <h2 id="atualizar-titulo">Baixando a versão {a.versao}</h2>
+            <div className="atualizar-barra"><span style={{ width: `${a.percentual}%` }} /></div>
+            <p className="atualizar-pct">{a.percentual}%</p>
+            <div className="atualizar-acoes">
+              <button className="botao" onClick={depois}>Continuar usando enquanto baixa</button>
+            </div>
+          </>
+        )}
+        {a.tipo === 'pronta' && (
+          <>
+            <h2 id="atualizar-titulo">Atualização pronta</h2>
+            <p>A versão <b>{a.versao}</b> foi baixada. O Parallello fecha, instala e abre de novo em poucos segundos.</p>
+            <div className="atualizar-acoes">
+              <button className="botao" onClick={depois}>Depois (instala ao fechar)</button>
+              <button className="botao primario" onClick={() => executar(() => api().atualizacao.instalar())} autoFocus>Reiniciar e atualizar</button>
+            </div>
+          </>
+        )}
+        {erro && <p className="erro">{erro}</p>}
+      </div>
+    </div>
   )
 }
 

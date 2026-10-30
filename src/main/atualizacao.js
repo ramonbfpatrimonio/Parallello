@@ -1,5 +1,5 @@
 // Atualização automática do Parallello (GitHub Releases, via electron-updater).
-// Uma atualização só para todos os sistemas. O aviso aparece na barra superior:
+// Uma atualização só para todos os sistemas. O aviso aparece no meio da tela (e na barra superior):
 // "Atualização X disponível" -> baixa em segundo plano -> "Reiniciar e atualizar".
 // Se a pessoa não reiniciar, instala ao fechar o programa.
 import { app } from 'electron';

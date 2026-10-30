@@ -803,3 +803,36 @@ input[type=checkbox]:disabled { cursor: not-allowed; opacity: 0.35; }
 }
 .interruptor.ligado .interruptor-bola { left: 3px; background: #e4eaef; }
 :root[data-tema='escuro'] .aviso { border: 1px solid var(--linha); }
+
+/* ---------------- aviso de atualização (meio da tela, por cima de tudo) ---------------- */
+.atualizar-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 16, 22, 0.62);
+  backdrop-filter: blur(3px);
+  animation: atualizar-entra 220ms ease-out;
+}
+.atualizar {
+  width: 100%;
+  max-width: 460px;
+  padding: 30px 30px 24px;
+  border-radius: 18px;
+  background: var(--papel);
+  color: var(--tinta);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+.atualizar-marca { width: 56px; height: 56px; margin: 0 auto 14px; }
+.atualizar h2 { margin: 0 0 10px; font: 700 24px/1.2 var(--titulo); letter-spacing: -0.015em; }
+.atualizar p { margin: 0; color: var(--tinta-2); }
+.atualizar p b { color: var(--tinta); }
+.atualizar-acoes { display: flex; justify-content: center; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+.atualizar-barra { height: 8px; margin-top: 8px; border-radius: 4px; background: var(--suave); overflow: hidden; }
+.atualizar-barra span { display: block; height: 100%; background: var(--petroleo); border-radius: 4px; transition: width 200ms ease; }
+.atualizar-pct { margin-top: 8px !important; font-weight: 600; }
+.atualizar .erro { margin-top: 14px; }
+@keyframes atualizar-entra { from { opacity: 0; } to { opacity: 1; } }
