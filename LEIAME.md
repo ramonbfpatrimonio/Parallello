@@ -157,6 +157,18 @@ Nos computadores: o Parallello verifica ao abrir e a cada 4 horas. O aviso apare
 O primeiro computador de cada cliente é instalado com o `.exe` do Release; depois disso, tudo é automático.
 Os avisos de atualização que existiam dentro do Gerar Pré-Venda e do Pesquisa de Relatórios agora ficam a cargo do Parallello.
 
+### Instalador do Parallello (para computadores novos)
+Todo Release leva também o **`Instalador-Parallello.exe`** (pasta `instalador/`). É um `.exe` só, sem instalação:
+pede o usuário `administrador` e a senha master (`P@r@llell0` + data do computador), procura a versão mais recente
+no GitHub, baixa, confere o arquivo, fecha o Parallello se estiver aberto e instala sem perguntas, marcando
+cada etapa com um check verde. Se uma etapa falhar, aparece o motivo e o botão **Tentar de novo**.
+
+Link que sempre baixa o instalador mais recente:
+https://github.com/ramonbfpatrimonio/Parallello/releases/latest/download/Instalador-Parallello.exe
+
+Para testar no seu computador: `node scripts/instalador.mjs` e depois `npx electron out-instalador`.
+Para gerar o `.exe` localmente: `npm run instalador` (sai em `dist-instalador\`).
+
 Gerar localmente continua possível: `npm run dist` (só o instalador, em `dist\`) ou `npm run release` (gera e publica do seu computador, com `GH_TOKEN`).
 
 ## Supabase

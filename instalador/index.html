@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self'" />
+<title>Instalador do Parallello</title>
+<style>
+  :root {
+    --nevoa: #e9edf0; --papel: #f8fafb; --tinta: #16202b; --tinta-2: #4b5966; --linha: #cbd4da;
+    --petroleo: #14a3ad; --ambar: #f0b43c; --verde: #1f9d55; --vermelho: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--nevoa); color: var(--tinta); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; user-select: none; }
+  header { background: var(--tinta); color: #fff; padding: 22px 28px; display: flex; align-items: center; gap: 14px; }
+  header img { width: 40px; height: 40px; }
+  header h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; }
+  header p { margin: 1px 0 0; color: #aab6c0; font-size: 13px; }
+  main { flex: 1; padding: 22px 28px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+  .cartao { background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; padding: 18px 20px; }
+  label { display: block; font-size: 12.5px; color: var(--tinta-2); margin: 0 0 4px; }
+  input { width: 100%; font: inherit; padding: 9px 11px; border: 1px solid var(--linha); border-radius: 7px; background: #fff; color: var(--tinta); user-select: text; }
+  input:focus { outline: 2px solid var(--petroleo); outline-offset: -1px; border-color: var(--petroleo); }
+  .campo + .campo { margin-top: 12px; }
+  .dica { font-size: 12.5px; color: var(--tinta-2); margin: 10px 0 0; }
+  .erro { color: var(--vermelho); font-size: 13px; margin: 10px 0 0; }
+  .acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  button { font: inherit; font-weight: 600; border-radius: 7px; padding: 9px 18px; cursor: pointer; border: 1px solid var(--linha); background: #fff; color: var(--tinta); }
+  button.primario { background: var(--petroleo); border-color: var(--petroleo); color: #fff; }
+  button:disabled { opacity: .55; cursor: default; }
+  button.link { border: 0; background: none; padding: 0; color: var(--petroleo); font-weight: 600; }
+
+  ol.etapas { list-style: none; margin: 0; padding: 0; }
+  ol.etapas li { display: grid; grid-template-columns: 26px 1fr; gap: 12px; padding: 10px 0; align-items: start; }
+  ol.etapas li + li { border-top: 1px solid #e3e8ec; }
+  .marca { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--linha); background: #fff; margin-top: 1px; }
+  .marca svg { width: 14px; height: 14px; display: none; }
+  li.feito .marca { background: var(--verde); border-color: var(--verde); animation: aparece .25s ease-out; }
+  li.feito .marca .ok { display: block; }
+  li.erro .marca { background: var(--vermelho); border-color: var(--vermelho); }
+  li.erro .marca .x { display: block; }
+  li.andamento .marca { border-color: #d5e6e8; border-top-color: var(--petroleo); animation: gira .8s linear infinite; }
+  li.pulado .marca { border-style: dashed; }
+  .titulo { font-weight: 600; }
+  li.pendente .titulo { color: var(--tinta-2); font-weight: 500; }
+  .detalhe { font-size: 12.5px; color: var(--tinta-2); margin-top: 2px; }
+  li.erro .detalhe { color: var(--vermelho); }
+  .barra { height: 6px; background: #e3e8ec; border-radius: 3px; margin-top: 7px; overflow: hidden; display: none; }
+  .barra i { display: block; height: 100%; width: 0; background: var(--petroleo); border-radius: 3px; transition: width .15s; }
+  li.andamento .barra.ativa { display: block; }
+  @keyframes gira { to { transform: rotate(360deg); } }
+  @keyframes aparece { from { transform: scale(.6); } to { transform: scale(1); } }
+
+  .pronto { display: none; align-items: center; gap: 10px; color: var(--verde); font-weight: 600; }
+  .pronto.ativo { display: flex; }
+  footer { padding: 0 28px 18px; display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--tinta-2); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <header>
+    <img src="marca.svg" alt="" />
+    <div>
+      <h1>Instalador do Parallello</h1>
+      <p>Baixa e instala a versão mais recente</p>
+    </div>
+  </header>
+
+  <main>
+    <form class="cartao" id="form-senha" autocomplete="off">
+      <div class="campo">
+        <label for="usuario">Usuário</label>
+        <input id="usuario" value="administrador" spellcheck="false" />
+      </div>
+      <div class="campo">
+        <label for="senha">Senha do administrador</label>
+        <input id="senha" type="password" autofocus />
+      </div>
+      <p class="erro" id="erro-senha" hidden></p>
+      <div class="acoes">
+        <button type="button" id="cancelar">Cancelar</button>
+        <button class="primario" id="entrar">Instalar</button>
+      </div>
+    </form>
+
+    <section class="cartao">
+      <ol class="etapas" id="etapas"></ol>
+    </section>
+
+    <div class="pronto" id="pronto">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>
+      <span id="pronto-texto">Parallello instalado.</span>
+    </div>
+  </main>
+
+  <footer>
+    <button class="link" id="ver-versoes" type="button">Ver versões publicadas</button>
+    <div class="acoes" style="margin:0">
+      <button id="tentar" class="primario" hidden>Tentar de novo</button>
+      <button id="fechar" hidden>Fechar</button>
+      <button id="abrir" class="primario" hidden>Abrir o Parallello</button>
+    </div>
+  </footer>
+
+<script>
+  const api = window.instalador
+  const $ = (id) => document.getElementById(id)
+  const ICONES = '<svg class="ok" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>' +
+    '<svg class="x" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"><path d="M7 7l10 10M17 7 7 17"/></svg>'
+
+  const mb = (n) => (n / 1048576).toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + ' MB'
+  const dataBR = (iso) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '')
+
+  const ETAPAS = [
+    { id: 'senha', titulo: 'Senha do administrador' },
+    { id: 'procurar', titulo: 'Procurar a versão mais recente' },
+    { id: 'baixar', titulo: 'Baixar o Parallello' },
+    { id: 'conferir', titulo: 'Conferir o arquivo baixado' },
+    { id: 'fechar', titulo: 'Fechar o Parallello, se estiver aberto' },
+    { id: 'instalar', titulo: 'Instalar' },
+  ]
+  $('etapas').innerHTML = ETAPAS.map((e) =>
+    `<li id="e-${e.id}" class="pendente"><span class="marca">${ICONES}</span><div><div class="titulo">${e.titulo}</div><div class="detalhe"></div><div class="barra"><i></i></div></div></li>`
+  ).join('')
+
+  function marcar(id, estado, detalhe) {
+    const li = $('e-' + id)
+    li.className = estado
+    if (detalhe !== undefined) li.querySelector('.detalhe').textContent = detalhe
+  }
+
+  let versao = null
+  let falhou = null
+
+  api.aoProgresso(({ recebido, total }) => {
+    const li = $('e-baixar')
+    const barra = li.querySelector('.barra')
+    barra.classList.add('ativa')
+    const pct = total ? Math.min(100, (recebido / total) * 100) : 0
+    barra.querySelector('i').style.width = pct.toFixed(1) + '%'
+    li.querySelector('.detalhe').textContent = total ? `${mb(recebido)} de ${mb(total)} (${Math.floor(pct)}%)` : mb(recebido)
+  })
+
+  const PASSOS = {
+    async procurar() {
+      const r = await api.procurar()
+      versao = r.versao
+      const extra = r.instalada ? (r.instalada === r.versao ? ` · já instalada neste computador (será reinstalada)` : ` · instalada hoje: ${r.instalada}`) : ''
+      return `Versão ${r.versao}${r.data ? ` de ${dataBR(r.data)}` : ''} · ${mb(r.tamanho)}${extra}`
+    },
+    async baixar() {
+      const r = await api.baixar()
+      return `${mb(r.tamanho)} baixados`
+    },
+    async conferir() {
+      const r = await api.conferir()
+      return r.conferido ? 'Arquivo íntegro (igual ao publicado)' : 'Tamanho conferido'
+    },
+    async fechar() {
+      const r = await api.fecharAberto()
+      return r.fechou ? 'O Parallello estava aberto e foi fechado' : 'Não estava aberto'
+    },
+    async instalar() {
+      const r = await api.instalar()
+      return `Parallello ${r.versao || versao} instalado`
+    },
+  }
+  const ORDEM = ['procurar', 'baixar', 'conferir', 'fechar', 'instalar']
+
+  async function executar(desde) {
+    $('tentar').hidden = true
+    $('fechar').hidden = true
+    falhou = null
+    for (const id of ORDEM.slice(ORDEM.indexOf(desde))) {
+      marcar(id, 'andamento', id === 'instalar' ? 'Instalando… pode levar um minuto' : '')
+      try {
+        marcar(id, 'feito', await PASSOS[id]())
+      } catch (e) {
+        marcar(id, 'erro', e.message)
+        falhou = id
+        $('tentar').hidden = false
+        $('fechar').hidden = false
+        return
+      }
+    }
+    $('pronto-texto').textContent = `Parallello ${versao} instalado. O atalho está na área de trabalho.`
+    $('pronto').classList.add('ativo')
+    $('abrir').hidden = false
+    $('fechar').hidden = false
+    $('abrir').focus()
+  }
+
+  $('form-senha').addEventListener('submit', async (ev) => {
+    ev.preventDefault()
+    $('erro-senha').hidden = true
+    marcar('senha', 'andamento', '')
+    try {
+      await api.senha($('usuario').value, $('senha').value)
+    } catch (e) {
+      marcar('senha', 'erro', e.message)
+      $('erro-senha').textContent = e.message
+      $('erro-senha').hidden = false
+      $('senha').value = ''
+      $('senha').focus()
+      return
+    }
+    marcar('senha', 'feito', 'Liberado')
+    $('form-senha').hidden = true
+    executar('procurar')
+  })
+
+  $('cancelar').onclick = () => api.sair()
+  $('fechar').onclick = () => api.sair()
+  $('tentar').onclick = () => executar(falhou === 'conferir' ? 'procurar' : falhou) // arquivo ruim: busca e baixa de novo
+  $('ver-versoes').onclick = () => api.versoes()
+  $('abrir').onclick = async () => {
+    $('abrir').disabled = true
+    try {
+      await api.abrir()
+    } catch (e) {
+      $('pronto-texto').textContent = e.message
+      $('abrir').disabled = false
+    }
+  }
+</script>
+</body>
+</html>

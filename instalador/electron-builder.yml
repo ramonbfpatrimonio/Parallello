@@ -1,0 +1,20 @@
+# Instalador do Parallello: um .exe só (portable), sem instalação, que baixa e instala a versão mais recente.
+# Gere com:  npm run instalador   ->  dist-instalador/Instalador-Parallello.exe
+appId: br.com.ramon.parallello.instalador
+productName: Instalador do Parallello
+electronVersion: 36.9.5
+directories:
+  app: out-instalador
+  output: dist-instalador
+  buildResources: build
+electronLanguages: [pt-BR, en-US]
+win:
+  target:
+    - target: portable
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: Instalador-Parallello.${ext}
+portable:
+  requestExecutionLevel: user
+  unpackDirName: instalador-parallello
+publish: null

@@ -35,3 +35,15 @@ jobs:
         run: node scripts/build.mjs && npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Instalador do Parallello (o .exe que pede a senha do administrador e baixa a versão mais recente).
+      # Vai junto em todo Release, então o link abaixo sempre funciona:
+      # https://github.com/ramonbfpatrimonio/Parallello/releases/latest/download/Instalador-Parallello.exe
+      - name: Anexar o Instalador do Parallello ao Release
+        shell: pwsh
+        run: |
+          npm run instalador
+          $versao = node -p "require('./package.json').version"
+          gh release upload "v$versao" dist-instalador/Instalador-Parallello.exe --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,7 +1,7 @@
 {
   "name": "parallello",
   "productName": "Parallello",
-  "version": "1.0.3",
+  "version": "1.0.2",
   "description": "Parallello — reúne Gerar Pré-Venda, Pré-Venda de Ruptura, Acompanhamento de Vendas, Pesquisa de Relatórios e Indicador Logístico num só programa",
   "author": "Ramon Barros Farias",
   "license": "UNLICENSED",
@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "dist": "node scripts/build.mjs && electron-builder --win --publish never",
     "release": "node scripts/build.mjs && electron-builder --win --publish always",
-    "rebuild:nativo": "electron-rebuild -f -w msnodesqlv8"
+    "rebuild:nativo": "electron-rebuild -f -w msnodesqlv8",
+    "instalador": "node scripts/instalador.mjs && electron-builder --config instalador/electron-builder.yml --win --publish never"
   },
   "dependencies": {
     "electron-updater": "6.3.9",
