@@ -22,7 +22,7 @@ export function criarPonteDemo() {
     definirMeusModulos: async (m) => mudar({ sessao: { ...estado.sessao, modulos: m } }),
     sair: async () => mudar({ sessao: sessaoVazia, abas: [], atual: null }),
     abrir: async (id) => {
-      if (!estado.sessao.permitidos.includes(id)) return { ok: false, mensagem: `Você não tem acesso ao módulo ${id}. Peça ao administrador da sua empresa para dar a permissão.` }
+      if (!estado.sessao.permitidos.includes(id)) return { ok: false, mensagem: `Você não tem acesso ao módulo ${id}. Sem licença para este módulo.` }
       mudar({ atual: id, abas: estado.abas.includes(id) ? estado.abas : [...estado.abas, id] })
       return { ok: true }
     },

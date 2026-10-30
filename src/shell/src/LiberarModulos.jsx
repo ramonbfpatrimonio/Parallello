@@ -9,7 +9,7 @@ const api = () => window.parallello
  * Liberar módulos: cada pessoa escolhe quais sistemas quer na tela inicial (pode marcar todos).
  * A permissão (definida pelo administrador na Configuração) é conferida só ao abrir o módulo.
  */
-export function LiberarModulos({ sessao, avisar }) {
+export function LiberarModulos({ sessao, avisar, aoSalvar }) {
   const [marcados, setMarcados] = useState(() => new Set(sessao.modulos))
   const [salvando, setSalvando] = useState(false)
   useEffect(() => setMarcados(new Set(sessao.modulos)), [sessao.modulos.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -29,7 +29,8 @@ export function LiberarModulos({ sessao, avisar }) {
     setSalvando(true)
     try {
       await api().definirMeusModulos([...marcados])
-      avisar('Módulos salvos. Eles já aparecem na tela inicial.')
+      avisar('Alteração salva.')
+      aoSalvar?.()
     } catch (e) {
       avisar(mensagem(e), 'erro')
     } finally {

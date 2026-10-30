@@ -111,7 +111,7 @@ export function App() {
       {pagina === 'config' && configLiberada ? (
         <Configuracao sessao={sessao} avisar={avisar} />
       ) : pagina === 'modulos' ? (
-        <LiberarModulos sessao={sessao} avisar={avisar} />
+        <LiberarModulos sessao={sessao} avisar={avisar} aoSalvar={() => irPara('inicio')} />
       ) : (
         <Inicio estado={estado} abrir={abrir} irPara={irPara} />
       )}

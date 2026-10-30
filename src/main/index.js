@@ -203,7 +203,7 @@ function abrir(id) {
     return {
       ok: false,
       motivo: 'sem-acesso',
-      mensagem: `Você não tem acesso ao módulo ${m.nome}. Peça ao administrador da sua empresa para dar a permissão.`,
+      mensagem: `Você não tem acesso ao módulo ${m.nome}. Sem licença para este módulo.`,
     };
   }
   const reg = iniciarModulo(id);
