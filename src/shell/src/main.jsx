@@ -7,6 +7,9 @@ import '@fontsource/ibm-plex-sans/500.css'
 import '@fontsource/ibm-plex-sans/600.css'
 import './estilo.css'
 import { App } from './App.jsx'
+import { aplicarTema, lerTema } from './preferencias.js'
+
+aplicarTema(lerTema()) // antes de desenhar, para não piscar o tema claro
 
 // Fora do Electron (vite no navegador) usa uma ponte de demonstração para ajustar o visual.
 async function iniciar() {

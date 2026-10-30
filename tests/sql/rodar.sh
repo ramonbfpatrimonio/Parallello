@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recria um banco de teste e roda: Supabase simulado -> 001 -> dados antigos -> 002 (2x) -> 003 -> 004 -> 005 (2x) -> testes
+# Recria um banco de teste e roda: Supabase simulado -> 001 -> dados antigos -> 002 (2x) -> 003 -> 004 -> 005 (2x) -> 006 -> testes
 # Uso: PGHOST=/caminho PGPORT=5432 PGUSER=postgres sh tests/sql/rodar.sh
 set -e
 P="psql -v ON_ERROR_STOP=1 -q -X"
@@ -16,6 +16,7 @@ $P -d gpv_teste -f supabase/migrations/003_eventos.sql 2>/dev/null
 $P -d gpv_teste -f supabase/migrations/004_cobranca.sql 2>/dev/null
 $P -d gpv_teste -f supabase/migrations/005_parallello.sql 2>/dev/null
 $P -d gpv_teste -f supabase/migrations/005_parallello.sql 2>/dev/null
+$P -d gpv_teste -f supabase/migrations/006_liberar_modulos.sql 2>/dev/null
 $P -d gpv_teste -f tests/sql/01_isolamento.sql 2>&1 | grep -E "✓|FALHOU|ERROR|PASSARAM"
 $P -d gpv_teste -f tests/sql/02_eventos.sql 2>&1 | grep -E "✓|FALHOU|ERROR|PASSARAM"
 $P -d gpv_teste -f tests/sql/03_parallello.sql 2>&1 | grep -E "✓|FALHOU|ERROR|PASSARAM"

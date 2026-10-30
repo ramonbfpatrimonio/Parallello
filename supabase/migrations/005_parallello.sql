@@ -137,14 +137,12 @@ grant execute on function public.modulos_permitidos(uuid) to authenticated;
 create or replace function public.definir_meus_modulos(p_modulos text[])
 returns text[] language plpgsql security definer set search_path = '' as $$
 declare
-  v_permitidos text[];
   v_final text[];
 begin
   if not public.usuario_liberado() then raise exception 'Acesso bloqueado.'; end if;
-  v_permitidos := public.modulos_permitidos(auth.uid());
   select coalesce(array_agg(distinct m order by m), '{}') into v_final
   from unnest(coalesce(p_modulos, '{}')) as m
-  where m <> '' and (v_permitidos is null or m = any (v_permitidos));
+  where m ~ '^[a-z0-9-]{1,60}$';
   update public.perfis set modulos_visiveis = v_final where id = auth.uid();
   return v_final;
 end $$;

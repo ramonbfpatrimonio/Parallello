@@ -1,6 +1,6 @@
 // Instalador do Parallello: pede a senha do administrador, baixa a versão mais recente
 // publicada no GitHub, confere o arquivo e instala sem perguntas, mostrando cada etapa.
-import { app, BrowserWindow, ipcMain, net, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, net } from 'electron'
 import { createHash } from 'crypto'
 import { execFile, spawn } from 'child_process'
 import fs from 'fs'
@@ -209,7 +209,6 @@ ipcMain.handle('abrir', async () => {
 })
 
 ipcMain.handle('sair', () => app.quit())
-ipcMain.handle('versoes', () => shell.openExternal(`https://github.com/${REPO}/releases`))
 
 app.whenReady().then(criarJanela)
 app.on('window-all-closed', () => app.quit())

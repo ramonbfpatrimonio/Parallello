@@ -6,22 +6,18 @@ import { mensagem } from './util.js'
 const api = () => window.parallello
 
 /**
- * Liberar módulos: cada pessoa escolhe quais sistemas quer na tela inicial.
- * Só dá para liberar o que ela tem permissão (definida pelo administrador na Configuração).
+ * Liberar módulos: cada pessoa escolhe quais sistemas quer na tela inicial (pode marcar todos).
+ * A permissão (definida pelo administrador na Configuração) é conferida só ao abrir o módulo.
  */
-export function LiberarModulos({ sessao, avisar, semAcesso }) {
+export function LiberarModulos({ sessao, avisar }) {
   const [marcados, setMarcados] = useState(() => new Set(sessao.modulos))
   const [salvando, setSalvando] = useState(false)
   useEffect(() => setMarcados(new Set(sessao.modulos)), [sessao.modulos.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const permitidos = new Set(sessao.permitidos ?? [])
   const alterado = [...marcados].sort().join(',') !== [...sessao.modulos].sort().join(',')
 
+  const todos = marcados.size === CATALOGO.length
   function alternar(m) {
-    if (!permitidos.has(m.id)) {
-      semAcesso(`Você não tem acesso ao módulo ${m.nome}. Peça ao administrador para permitir na Configuração do Parallello.`)
-      return
-    }
     setMarcados((atual) => {
       const s = new Set(atual)
       s.has(m.id) ? s.delete(m.id) : s.add(m.id)
@@ -49,6 +45,9 @@ export function LiberarModulos({ sessao, avisar, semAcesso }) {
           <p>Marque os sistemas que você usa e clique em <b>Salvar</b>. Só os liberados aparecem na sua tela inicial.</p>
         </div>
         <div className="pagina-acoes">
+          <button className="botao" onClick={() => setMarcados(todos ? new Set() : new Set(CATALOGO.map((m) => m.id)))}>
+            {todos ? 'Desmarcar todos' : 'Marcar todos'}
+          </button>
           <button className="botao primario" onClick={salvar} disabled={salvando || !alterado}>
             {salvando ? 'Salvando…' : 'Salvar'}
           </button>

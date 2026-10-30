@@ -8,6 +8,7 @@ import { Configuracao } from './config/Configuracao.jsx'
 import { Preloader } from './Preloader.jsx'
 import { Modal } from './Modal.jsx'
 import { mensagem, NOME_PAPEL } from './util.js'
+import { aplicarTema, gravarVisao, lerTema, lerVisao } from './preferencias.js'
 
 const api = () => window.parallello
 
@@ -110,7 +111,7 @@ export function App() {
       {pagina === 'config' && configLiberada ? (
         <Configuracao sessao={sessao} avisar={avisar} />
       ) : pagina === 'modulos' ? (
-        <LiberarModulos sessao={sessao} avisar={avisar} semAcesso={setSemAcesso} />
+        <LiberarModulos sessao={sessao} avisar={avisar} />
       ) : (
         <Inicio estado={estado} abrir={abrir} irPara={irPara} />
       )}
@@ -265,18 +266,43 @@ function Usuario({ sessao }) {
               </select>
             </label>
           )}
-          <button className="usuario-menu-item" role="menuitem" onClick={() => api().atualizarSessao().then(() => setAberto(false))}>
-            Atualizar permissões
-          </button>
-          <button className="usuario-menu-item" role="menuitem" onClick={() => api().abrirPastaDados()}>
-            Abrir a pasta de dados
-          </button>
+          <InterruptorTema />
+          {sessao.ehAdmin && (
+            <>
+              <button className="usuario-menu-item" role="menuitem" onClick={() => api().atualizarSessao().then(() => setAberto(false))}>
+                Atualizar permissões
+              </button>
+              <button className="usuario-menu-item" role="menuitem" onClick={() => api().abrirPastaDados()}>
+                Abrir a pasta de dados
+              </button>
+            </>
+          )}
           <button className="usuario-menu-item sair" role="menuitem" onClick={() => api().sair()}>
             Sair do Parallello
           </button>
         </div>
       )}
     </div>
+  )
+}
+
+function InterruptorTema() {
+  const [tema, setTema] = useState(lerTema)
+  const escuro = tema === 'escuro'
+  function trocar() {
+    const novo = escuro ? 'claro' : 'escuro'
+    aplicarTema(novo)
+    setTema(novo)
+  }
+  return (
+    <button className="usuario-menu-item tema" role="menuitemcheckbox" aria-checked={escuro} onClick={trocar}>
+      <span>Tema {escuro ? 'escuro' : 'claro'}</span>
+      <span className={'interruptor' + (escuro ? ' ligado' : '')} aria-hidden="true">
+        <svg className="interruptor-sol" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" /></svg>
+        <svg className="interruptor-lua" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>
+        <span className="interruptor-bola" />
+      </span>
+    </button>
   )
 }
 
@@ -306,41 +332,66 @@ function Atualizacao({ a }) {
   return null
 }
 
+const ICONES_VISAO = {
+  grande: <svg viewBox="0 0 20 20"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5" /><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5" /><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5" /><rect x="11" y="11" width="6.5" height="6.5" rx="1.5" /></svg>,
+  medio: <svg viewBox="0 0 20 20">{[2.5, 8.25, 14].flatMap((y) => [2.5, 8.25, 14].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width="3.5" height="3.5" rx="0.8" />))}</svg>,
+  lista: <svg viewBox="0 0 20 20"><rect x="2.5" y="3" width="3" height="3" rx="0.8" /><rect x="2.5" y="8.5" width="3" height="3" rx="0.8" /><rect x="2.5" y="14" width="3" height="3" rx="0.8" /><path d="M8 4.5h9.5M8 10h9.5M8 15.5h9.5" /></svg>,
+}
+const NOMES_VISAO = { grande: 'Ícones grandes', medio: 'Ícones médios', lista: 'Lista' }
+
 function Inicio({ estado, abrir, irPara }) {
   const agora = new Date()
   const sessao = estado.sessao
+  const [visao, setVisao] = useState(lerVisao)
   const liberados = new Set(sessao.modulos)
   const abertos = new Set(estado.abas)
   const visiveis = CATALOGO.filter((m) => liberados.has(m.id))
+  const mudarVisao = (v) => {
+    setVisao(v)
+    gravarVisao(v)
+  }
   return (
     <main className="inicio">
-      <section className="cabeca">
-        <h1>{saudacao(agora)}, {primeiroNome(sessao.perfil?.nome)}.</h1>
-        <p className="cabeca-data">{dataPorExtenso(agora)}</p>
-        <p className="cabeca-texto">
-          {visiveis.length === 0
-            ? 'Nenhum sistema liberado ainda. Abra "Liberar módulos" e marque os sistemas que você usa.'
-            : 'Escolha um sistema. Os que você abrir ficam nas abas lá em cima, cada um do jeito que você deixou.'}
-        </p>
-        {visiveis.length === 0 && (
-          <button className="botao primario" onClick={() => irPara('modulos')}>Liberar módulos</button>
+      <div className="inicio-topo">
+        <section className="cabeca">
+          <h1>{saudacao(agora)}, {primeiroNome(sessao.perfil?.nome)}.</h1>
+          <p className="cabeca-data">{dataPorExtenso(agora)}</p>
+          <p className="cabeca-texto">
+            {visiveis.length === 0
+              ? 'Nenhum sistema liberado ainda. Abra "Liberar módulos" e marque os sistemas que você usa.'
+              : 'Escolha um sistema. Os que você abrir ficam nas abas lá em cima, cada um do jeito que você deixou.'}
+          </p>
+          {visiveis.length === 0 && (
+            <button className="botao primario" onClick={() => irPara('modulos')}>Liberar módulos</button>
+          )}
+        </section>
+        {visiveis.length > 0 && (
+          <div className="visao" role="radiogroup" aria-label="Ver os módulos como">
+            {Object.keys(ICONES_VISAO).map((v) => (
+              <button key={v} role="radio" aria-checked={visao === v} className={visao === v ? 'ativo' : ''} onClick={() => mudarVisao(v)} title={NOMES_VISAO[v]} aria-label={NOMES_VISAO[v]}>
+                {ICONES_VISAO[v]}
+              </button>
+            ))}
+          </div>
         )}
-      </section>
+      </div>
 
       {visiveis.length > 0 && (
-        <ul className="cards">
+        <ul className={`cards visao-${visao}`}>
           {visiveis.map((m) => {
             const aberto = abertos.has(m.id)
             const erro = estado.erros[m.id]
             return (
               <li key={m.id}>
-                <button className="card" style={{ '--cor': m.cor }} onClick={() => abrir(m.id)} disabled={!!erro}>
+                <button className="card" style={{ '--cor': m.cor }} onClick={() => abrir(m.id)} disabled={!!erro} title={visao === 'lista' ? undefined : m.descricao}>
                   <span className="card-logo">
                     <img src={ICONES[m.id]} alt="" />
                   </span>
                   {aberto && <span className="card-aberto">Aberto</span>}
-                  <span className="card-nome">{m.nome}</span>
-                  <span className="card-descricao">{m.descricao}</span>
+                  <span className="card-textos">
+                    <span className="card-nome">{m.nome}</span>
+                    <span className="card-descricao">{m.descricao}</span>
+                  </span>
                   <span className="card-rodape">
                     <span className="card-faixa" aria-hidden="true" />
                     {erro ? 'Não abriu' : aberto ? 'Voltar para a aba' : 'Abrir'}

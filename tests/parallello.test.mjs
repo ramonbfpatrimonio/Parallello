@@ -190,15 +190,16 @@ test('master sem internet: abre a configuração, começa sem módulos e libera 
   assert.equal(pub.configLiberada, true, 'administrador já abre a configuração')
   assert.deepEqual(pub.modulos, [], 'tela inicial começa em branco')
   assert.equal(pub.permitidos.length, 5, 'master pode usar todos')
-  assert.equal(s.podeAbrir('acompanhamento'), false)
+  assert.equal(s.estaNaTela('acompanhamento'), false)
   await s.definirMeusModulos(['acompanhamento'])
-  assert.equal(s.podeAbrir('acompanhamento'), true)
-  assert.equal(s.podeAbrir('gerar-pre-venda'), false)
-  await assert.rejects(s.definirMeusModulos(['nao-existe']), /não tem acesso/)
+  assert.equal(s.estaNaTela('acompanhamento'), true)
+  assert.equal(s.estaNaTela('gerar-pre-venda'), false)
+  assert.equal(s.podeAbrir('gerar-pre-venda'), true, 'master tem acesso a todos')
+  assert.deepEqual(await s.definirMeusModulos(['nao-existe', 'acompanhamento']), ['acompanhamento'], 'módulo desconhecido é ignorado')
   await assert.rejects(s.listarUsuarios(), /nuvem/, 'usuários precisam da nuvem')
 })
 
-test('usuário da nuvem: só libera o que tem permissão; tela inicial mostra só o que ele liberou; depois entra sem internet', async () => {
+test('usuário da nuvem: libera o que quiser para a tela, mas só abre o que tem permissão; depois entra sem internet', async () => {
   const pasta = pastaTemp()
   const perfil = { id: 'u1', nome: 'João', usuario: 'joao', papel: 'operador', ativo: true, empresa_id: 'e1', empresa_nome: 'Hage', empresa_ativa: true, empresa_modulos: ['acompanhamento', 'indicador-logistico'], modulos: ['acompanhamento', 'gerar-pre-venda'], modulos_visiveis: ['acompanhamento', 'indicador-logistico'] }
   const logins = []
@@ -214,8 +215,12 @@ test('usuário da nuvem: só libera o que tem permissão; tela inicial mostra s�
   assert.equal(pub.modo, 'nuvem')
   assert.equal(pub.configLiberada, false)
   assert.deepEqual(pub.permitidos, ['acompanhamento'], 'gerar-pre-venda não foi contratado; indicador não foi permitido')
-  assert.deepEqual(pub.modulos, ['acompanhamento'], 'só aparece o que ele liberou e pode usar')
-  await assert.rejects(s.definirMeusModulos(['acompanhamento', 'indicador-logistico']), /não tem acesso ao módulo indicador-logistico/)
+  assert.deepEqual(pub.modulos, ['acompanhamento', 'indicador-logistico'], 'aparece tudo o que ele liberou para a tela')
+  assert.equal(s.podeAbrir('acompanhamento'), true)
+  assert.equal(s.podeAbrir('indicador-logistico'), false, 'mas só abre o que tem permissão')
+  await s.definirMeusModulos(['acompanhamento', 'indicador-logistico', 'gerar-pre-venda'])
+  assert.deepEqual(escolhas.pop(), ['acompanhamento', 'indicador-logistico', 'gerar-pre-venda'], 'salva mesmo sem permissão')
+  assert.equal(s.podeAbrir('gerar-pre-venda'), false)
   await s.definirMeusModulos([])
   assert.deepEqual(escolhas, [[]])
   assert.deepEqual(s.publico().modulos, [])

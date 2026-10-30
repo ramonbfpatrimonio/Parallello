@@ -9,6 +9,8 @@ conexões com o banco e liberação de módulos ficam aqui e valem para todos os
    Cria o nome de login (`perfis.usuario`), a permissão de módulos de cada usuário (`perfis.modulos`), os módulos
    que cada um escolheu ver (`perfis.modulos_visiveis`), os contratados por empresa (`empresas.modulos`) e as
    funções que mudam isso. Se você já tinha rodado uma versão anterior deste arquivo, rode de novo.
+   Depois rode `migrations/006_liberar_modulos.sql` (cada um pode liberar qualquer módulo para a própria tela;
+   a permissão é conferida ao abrir).
 2. **Edge Functions → admin-usuarios** → substitua pelo novo `functions/admin-usuarios/index.ts` → **Deploy**.
    Agora cria usuários pelo nome de login (ex.: `joao` vira `joao@parallello.app` por dentro).
 3. **Edge Functions → login-master** → substitua pelo novo `functions/login-master/index.ts` → **Deploy**.
@@ -17,7 +19,8 @@ conexões com o banco e liberação de módulos ficam aqui e valem para todos os
    É a conta que a senha master abre na nuvem. Sem o segredo, usa o super administrador ativo mais antigo.
 
 > Depois da atualização, a tela inicial de todo mundo começa vazia: cada um abre **Liberar módulos** e marca os
-> sistemas que usa. Operadores só conseguem marcar o que tiverem permissão (Configuração > Usuários).
+> sistemas que usa (pode marcar todos). Ao abrir um módulo sem permissão (Configuração > Usuários), aparece
+> "Você não tem acesso ao módulo ...".
 
 ## Como o login funciona
 

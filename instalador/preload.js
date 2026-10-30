@@ -18,6 +18,5 @@ contextBridge.exposeInMainWorld('instalador', {
   instalar: () => chamar('instalar'),
   abrir: () => chamar('abrir'),
   sair: () => chamar('sair'),
-  versoes: () => chamar('versoes'),
   aoProgresso: (fn) => ipcRenderer.on('progresso', (_e, p) => fn(p)),
 })

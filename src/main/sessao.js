@@ -110,10 +110,12 @@ export function criarSessao({ pasta, catalogo, aoMudar }) {
     return contratados.filter((m) => (perfil.modulos ?? []).includes(m))
   }
   /** O que aparece na tela inicial: o que a pessoa liberou, dentro do permitido. */
-  function calcularVisiveis(escolhidos, permitidos) {
-    return idsModulos().filter((m) => permitidos.includes(m) && (escolhidos ?? []).includes(m))
+  // Na tela inicial aparece tudo o que a pessoa liberou para si (mesmo sem permissão);
+  // a permissão é conferida só na hora de abrir o módulo.
+  function calcularVisiveis(escolhidos) {
+    return idsModulos().filter((m) => (escolhidos ?? []).includes(m))
   }
-  const modulosDoMaster = () => calcularVisiveis(local().modulosAdministrador ?? [], idsModulos())
+  const modulosDoMaster = () => calcularVisiveis(local().modulosAdministrador ?? [])
 
   function estadoLicenca(perfil) {
     const l = perfil?.licenca
@@ -246,7 +248,7 @@ export function criarSessao({ pasta, catalogo, aoMudar }) {
       modo = 'offline'
     }
     const permitidos = calcularPermitidos(perfil)
-    s = { ...vazio(), logado: true, modo, perfil, permitidos, modulos: calcularVisiveis(perfil.modulos_visiveis, permitidos), internet: modo === 'nuvem', licenca: estadoLicenca(perfil) }
+    s = { ...vazio(), logado: true, modo, perfil, permitidos, modulos: calcularVisiveis(perfil.modulos_visiveis), internet: modo === 'nuvem', licenca: estadoLicenca(perfil) }
     await carregarEmpresas()
     definirEmpresaInicial()
     await sincronizarConexoes()
@@ -279,7 +281,7 @@ export function criarSessao({ pasta, catalogo, aoMudar }) {
           }
           s.perfil = p
           s.permitidos = calcularPermitidos(p)
-          s.modulos = calcularVisiveis(p.modulos_visiveis, s.permitidos)
+          s.modulos = calcularVisiveis(p.modulos_visiveis)
           s.licenca = estadoLicenca(p)
           s.internet = true
         }
@@ -314,19 +316,15 @@ export function criarSessao({ pasta, catalogo, aoMudar }) {
   // ------------------------------------------------------------ "Liberar módulos": cada um escolhe os seus
   async function definirMeusModulos(modulos) {
     if (!s.logado) throw new Error('Entre no Parallello.')
-    const pedidos = [...new Set(modulos ?? [])]
-    const negado = pedidos.find((m) => !s.permitidos.includes(m))
-    if (negado) {
-      const nome = catalogo.find((m) => m.id === negado)?.nome ?? negado
-      throw new Error(`Você não tem acesso ao módulo ${nome}. Peça ao administrador para permitir.`)
-    }
+    // pode liberar qualquer módulo para a própria tela; o acesso é conferido ao abrir
+    const pedidos = [...new Set(modulos ?? [])].filter((m) => idsModulos().includes(m))
     if (s.modo?.startsWith('master')) {
       salvarLocal({ modulosAdministrador: pedidos })
       s.modulos = modulosDoMaster()
     } else if (s.modo === 'nuvem') {
       const r = await nuvem.definirMeusModulos(pedidos)
       s.perfil = { ...s.perfil, modulos_visiveis: r }
-      s.modulos = calcularVisiveis(r, s.permitidos)
+      s.modulos = calcularVisiveis(r)
       lembrarPerfilOffline()
     } else {
       throw new Error('Sem internet: a escolha dos módulos é salva na nuvem. Tente de novo com internet.')
@@ -459,7 +457,8 @@ export function criarSessao({ pasta, catalogo, aoMudar }) {
     escolherEmpresa,
     publico,
     usuarioParaModulo,
-    podeAbrir: (id) => s.logado && s.modulos.includes(id),
+    podeAbrir: (id) => s.logado && s.permitidos.includes(id),
+    estaNaTela: (id) => s.logado && s.modulos.includes(id),
     definirMeusModulos,
     liberarConfig,
     fecharConfig,

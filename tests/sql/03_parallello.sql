@@ -83,19 +83,20 @@ set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';  -- super: c
 do $$ begin perform public.definir_modulos_empresa('bbbbbbbb-0000-0000-0000-000000000000', '{acompanhamento,indicador-logistico}'); end $$;
 set request.jwt.claim.sub = 'd0000000-0000-0000-0000-00000000000d';  -- operador João: permitido indicador-logistico
 do $$ begin
-  assert public.definir_meus_modulos('{indicador-logistico,gerar-pre-venda}') = '{indicador-logistico}', 'operador só vê o que foi permitido';
-  assert (select modulos_visiveis from perfis where id = auth.uid()) = '{indicador-logistico}', 'gravou a escolha do operador';
+  assert public.definir_meus_modulos('{indicador-logistico,gerar-pre-venda,gerar-pre-venda}') = '{gerar-pre-venda,indicador-logistico}', 'operador libera o que quiser para a própria tela';
+  assert (select modulos_visiveis from perfis where id = auth.uid()) = '{gerar-pre-venda,indicador-logistico}', 'gravou a escolha do operador';
+  assert public.modulos_permitidos(auth.uid()) = '{indicador-logistico}', 'mas a permissão continua só indicador';
   begin update public.perfis set modulos_visiveis = '{gerar-pre-venda}' where id = auth.uid(); exception when insufficient_privilege then return; end;
   raise exception 'FALHOU: operador alterou modulos_visiveis direto';
 end $$;
 set request.jwt.claim.sub = 'b0000000-0000-0000-0000-00000000000a';  -- admin da Norte: vê os contratados
 do $$ begin
-  assert public.definir_meus_modulos('{acompanhamento,indicador-logistico,pesquisa-relatorios}') = '{acompanhamento,indicador-logistico}', 'admin vê os contratados';
+  assert public.definir_meus_modulos('{acompanhamento,indicador-logistico,pesquisa-relatorios,''; drop''}') = '{acompanhamento,indicador-logistico,pesquisa-relatorios}', 'admin escolhe; texto estranho é ignorado';
 end $$;
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';  -- super vê tudo
 do $$ begin
   assert public.definir_meus_modulos('{pesquisa-relatorios,gerar-pre-venda}') = '{gerar-pre-venda,pesquisa-relatorios}', 'super vê todos';
 end $$;
 reset role;
-\echo '✓ cada usuário escolhe os módulos que vê, só entre os que tem permissão'
+\echo '✓ cada usuário escolhe os módulos da própria tela; a permissão fica à parte'
 \echo 'TODOS OS TESTES DO PARALLELLO PASSARAM'
