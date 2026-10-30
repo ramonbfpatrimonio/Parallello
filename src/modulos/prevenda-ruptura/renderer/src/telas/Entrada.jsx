@@ -11,17 +11,17 @@ function Lado({ demo }) {
           <b>Pré-venda</b><i>−</i><b>Pedido</b><i>=</i><b className="falta">Falta</b>
         </div>
       </div>
-      <div className="rodape">{demo ? <span className="demo-tag">Modo demonstração — sem banco real</span> : 'Dados salvos somente neste computador.'}</div>
+      <div className="rodape">{demo ? <span className="demo-tag">Modo demonstração — sem banco real</span> : 'Conexão e usuário: os do Parallello.'}</div>
     </div>
   );
 }
 
-export default function Entrada({ estado, onSetupFeito, onLogin }) {
+export default function Entrada({ estado, erroInicial, onSetupFeito, onLogin }) {
   return (
     <div className="entrada">
       <Lado demo={estado.demo} />
       <div className="entrada-form">
-        {estado.primeiroUso ? <Setup onFeito={onSetupFeito} /> : <Login estado={estado} onLogin={onLogin} />}
+        {estado.primeiroUso ? <Setup onFeito={onSetupFeito} /> : <Login estado={estado} erroInicial={erroInicial} onLogin={onLogin} />}
       </div>
     </div>
   );
@@ -60,15 +60,13 @@ function Setup({ onFeito }) {
   );
 }
 
-function Login({ estado, onLogin }) {
-  const [usuario, setUsuario] = useState(estado.ultimoUsuario || '');
-  const [senha, setSenha] = useState('');
+// Login único: o usuário é o do Parallello. Aqui só se escolhe a empresa (conexão com o banco).
+function Login({ estado, erroInicial, onLogin }) {
   const [conexaoId, setConexaoId] = useState(
     estado.conexoes.find((c) => c.id === estado.ultimaConexaoId)?.id || estado.conexoes[0]?.id || ''
   );
-  const [erro, setErro] = useState('');
+  const [erro, setErro] = useState(erroInicial || '');
   const [entrando, setEntrando] = useState(false);
-  // se a lista de empresas mudou (ex.: cadastrada agora), usa uma válida
   const idValido = estado.conexoes.some((c) => c.id === conexaoId)
     ? conexaoId
     : estado.conexoes.find((c) => c.id === estado.ultimaConexaoId)?.id || estado.conexoes[0]?.id || '';
@@ -76,32 +74,28 @@ function Login({ estado, onLogin }) {
   const entrar = async (e) => {
     e.preventDefault();
     setErro('');
-    if (!usuario.trim()) return setErro('Digite o usuário!');
-    if (!senha) return setErro('Digite a senha!');
     setEntrando(true);
     try {
-      onLogin(await window.api.login({ usuario, senha, conexaoId: idValido }));
+      onLogin(await window.api.login({ conexaoId: idValido }));
     } catch (err) {
       setErro(err.message);
-      setSenha('');
     } finally { setEntrando(false); }
   };
 
   const semEmpresa = estado.conexoes.length === 0;
   return (
     <form onSubmit={entrar}>
-      <h2>Entrar</h2>
-      {semEmpresa && <div className="aviso-box">Nenhuma empresa cadastrada. Pressione <b>Ctrl+Shift+B</b> para abrir as configurações e cadastrar a conexão com o banco.</div>}
+      <h2>Escolha a empresa</h2>
+      <p className="sub">Você entrou no Parallello como <b>{estado.ultimoUsuario}</b>.</p>
+      {semEmpresa && <div className="aviso-box">Nenhuma conexão com o banco cadastrada. Na tela inicial do Parallello, pressione <b>Ctrl+Shift+B</b> e cadastre a conexão (ela vale para todos os sistemas).</div>}
       <Campo rotulo="Empresa">
-        <select value={idValido} onChange={(e) => setConexaoId(e.target.value)} disabled={semEmpresa}>
+        <select value={idValido} onChange={(e) => setConexaoId(e.target.value)} disabled={semEmpresa} autoFocus>
           {estado.conexoes.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
         </select>
       </Campo>
-      <Campo rotulo="Usuário"><input value={usuario} onChange={(e) => setUsuario(e.target.value)} autoFocus={!usuario} /></Campo>
-      <Campo rotulo="Senha"><input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoFocus={!!usuario} /></Campo>
       {erro && <div className="erro-box">{erro}</div>}
       <button className="btn primario" disabled={entrando || semEmpresa} style={{ justifyContent: 'center', height: 38 }}>
-        {entrando ? <><span className="carregando" /> Conectando ao banco…</> : 'Entrar'}
+        {entrando ? <><span className="carregando" /> Conectando ao banco…</> : 'Continuar'}
       </button>
     </form>
   );

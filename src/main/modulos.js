@@ -5,4 +5,5 @@ export const FABRICAS = {
   'prevenda-ruptura': () => require('../modulos/prevenda-ruptura/main/modulo.js'),
   acompanhamento: () => require('../modulos/acompanhamento/main/modulo.cjs'),
   'pesquisa-relatorios': () => require('../modulos/pesquisa-relatorios/modulo.js'),
+  'indicador-logistico': () => require('../modulos/indicador-logistico/main/modulo.js'),
 };

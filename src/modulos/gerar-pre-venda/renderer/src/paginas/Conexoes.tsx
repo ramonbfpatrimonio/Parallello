@@ -19,7 +19,9 @@ export function Pagina_Conexoes() {
   const { empresaAtual, internet } = useSessao()
   const adm = useAdmin()
   const nuvem = adm.nuvem
-  const admin = !!nuvem // sem internet: só a senha deste computador
+  // Painel do Parallello sem empresa (senha master sem nuvem, na instalação): conexões só deste computador
+  const local = !empresaAtual && !!adm.perfil
+  const admin = !!nuvem || local // sem internet: só a senha deste computador
   const avisar = useAviso()
 
   const [form, setForm] = useState<PerfilConexao>(perfis[0] ?? vazio(empresaAtual?.id))
@@ -88,6 +90,23 @@ export function Pagina_Conexoes() {
 
   /** Salva o cadastro na empresa (todos os PCs) e a senha só neste computador. */
   const salvar = async (p: PerfilConexao = form) => {
+    if (local) {
+      if (!p.cliente.trim() || !p.nome.trim() || !p.servidor.trim()) return avisar('Preencha cliente, nome e servidor.', 'erro')
+      setSalvando(true)
+      try {
+        const salvo = await window.api.conexoes.salvar({ ...p, empresaId: '' }, p === form && senha ? senha : undefined)
+        await recarregar()
+        setForm(salvo)
+        setSenha('')
+        if (!ativa) selecionar(salvo.id)
+        avisar(`Conexão ${salvo.cliente} › ${salvo.nome} salva neste computador.`, 'ok')
+      } catch (e) {
+        avisar((e as Error).message, 'erro')
+      } finally {
+        setSalvando(false)
+      }
+      return
+    }
     if (!empresaAtual) return avisar('Escolha a empresa antes de cadastrar conexões.', 'erro')
     if (!internet || !nuvem) return avisar('Sem internet: o cadastro de conexões é salvo na empresa e precisa de conexão.', 'erro')
     if (!p.cliente.trim() || !p.nome.trim() || !p.servidor.trim()) return avisar(`Preencha ${faltando || 'os dados da conexão'}.`, 'erro')
@@ -126,10 +145,10 @@ export function Pagina_Conexoes() {
   }
 
   const excluir = async () => {
-    if (!form.id || !confirm(`Excluir a conexão ${form.cliente} › ${form.nome} de todos os computadores de ${empresaAtual?.nome}?`)) return
-    if (!nuvem) return avisar('Sem internet: não é possível excluir agora.', 'erro')
+    if (!form.id || !confirm(local ? `Excluir a conexão ${form.cliente} › ${form.nome} deste computador?` : `Excluir a conexão ${form.cliente} › ${form.nome} de todos os computadores de ${empresaAtual?.nome}?`)) return
+    if (!nuvem && !local) return avisar('Sem internet: não é possível excluir agora.', 'erro')
     try {
-      await nuvem.excluirConexao(form.id)
+      if (!local) await nuvem!.excluirConexao(form.id)
       await window.api.conexoes.excluir(form.id)
       await recarregar()
       setForm(vazio(empresaAtual?.id))
@@ -177,7 +196,7 @@ export function Pagina_Conexoes() {
           <div className="acoes">
             <button className="botao" onClick={() => setArquivo('importar')} title="Trazer conexões com as senhas do SQL de outro computador">Importar</button>
             <button className="botao" onClick={() => setArquivo('exportar')} disabled={!perfis.length} title="Levar as conexões com as senhas do SQL para outro computador">Exportar</button>
-            <button className="botao primario" onClick={() => abrir(vazio(empresaAtual?.id))} disabled={!empresaAtual}><Icone nome="mais" /> Nova conexão</button>
+            <button className="botao primario" onClick={() => abrir(vazio(empresaAtual?.id))} disabled={!empresaAtual && !local}><Icone nome="mais" /> Nova conexão</button>
           </div>
         )}
       </div>
@@ -185,7 +204,7 @@ export function Pagina_Conexoes() {
       {!admin && <div style={{ marginBottom: 14 }}><Alerta tipo="aviso">Somente administradores alteram o cadastro das conexões. Você pode escolher a conexão na faixa superior e informar a senha do SQL deste computador.</Alerta></div>}
       {!empresaAtual && (
         <div style={{ marginBottom: 14 }}>
-          <Alerta tipo="aviso">{adm.ehSuper ? 'Nenhuma empresa escolhida. Cadastre uma em Empresas (ou escolha na faixa superior) para criar as conexões dela.' : 'Seu usuário não está ligado a nenhuma empresa.'}</Alerta>
+          <Alerta tipo="aviso">{local ? 'Sem empresa da nuvem (senha master sem internet): as conexões ficam só neste computador. Com internet, use "Enviar para a empresa" para levar para os outros computadores.' : adm.ehSuper ? 'Nenhuma empresa escolhida. Cadastre uma em Empresas (ou escolha na faixa superior) para criar as conexões dela.' : 'Seu usuário não está ligado a nenhuma empresa.'}</Alerta>
         </div>
       )}
       {empresaAtual && !sincronizadoComNuvem && (
@@ -193,7 +212,7 @@ export function Pagina_Conexoes() {
           <Alerta tipo="aviso">{internet ? 'Conectando à nuvem… por enquanto mostrando a cópia das conexões guardada neste computador.' : 'Sem internet: mostrando a cópia das conexões guardada neste computador.'}</Alerta>
         </div>
       )}
-      {admin && locais.length > 0 && (
+      {admin && empresaAtual && locais.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <Alerta tipo="aviso" acoes={<button className="botao" disabled={!internet || salvando} onClick={async () => { for (const p of locais) await salvar({ ...p, empresaId: empresaAtual?.id ?? '' }) }}>Enviar para {empresaAtual?.nome}</button>}>
             Há {locais.length} conexão(ões) antiga(s) só neste computador ({locais.map((p) => `${p.cliente} › ${p.nome}`).join(', ')}). Envie para a empresa para os outros computadores enxergarem.

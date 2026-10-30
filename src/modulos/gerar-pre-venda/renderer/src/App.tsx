@@ -3,20 +3,16 @@ import { AvisosProvider, ConexoesProvider, SessaoProvider, useSessao } from './c
 import { Faixa } from './componentes/Faixa'
 import { Icone } from './componentes/Icone'
 import { Pagina_Pedido } from './paginas/Pedido'
-import { Pagina_Conexoes } from './paginas/Conexoes'
 import { Pagina_Historico } from './paginas/Historico'
-import { Pagina_Usuarios } from './paginas/Usuarios'
-import { Pagina_Login } from './paginas/Login'
-import { Pagina_Empresas } from './paginas/Empresas'
-import { Pagina_Eventos } from './paginas/Eventos'
 import { Pagina_Aparencia } from './paginas/Aparencia'
 import { Pagina_Modelos } from './paginas/Modelos'
-import { Pagina_Cobranca } from './paginas/Cobranca'
 import { AvisoLicenca } from './componentes/AvisoLicenca'
 import { AdminProvider, useAdmin } from './admin'
 
-export type Aba = 'pedido' | 'historico' | 'modelos' | 'conexoes' | 'usuarios' | 'eventos' | 'aparencia' | 'empresas' | 'cobranca'
-const ABAS_ADMIN: Aba[] = ['conexoes', 'usuarios', 'eventos', 'aparencia', 'empresas', 'modelos', 'cobranca']
+export type Aba = 'pedido' | 'historico' | 'modelos' | 'aparencia'
+// Conexões, usuários, empresas, cobrança e eventos ficam na Configuração do Parallello (Ctrl+Shift+B).
+// Modelos de pedido e aparência continuam aqui, para o super administrador.
+const ABAS_ADMIN: Aba[] = ['modelos', 'aparencia']
 
 function abaInicial(): Aba {
   const a = new URLSearchParams(location.search).get('aba') as Aba | null
@@ -24,9 +20,9 @@ function abaInicial(): Aba {
 }
 
 function Casca() {
-  const { perfil, carregando } = useSessao()
+  const { perfil, carregando, erro } = useSessao()
   if (carregando) return <div className="carregando"><span><span className="spinner" /> Carregando…</span></div>
-  if (!perfil) return <Pagina_Login />
+  if (!perfil) return <div className="carregando"><span>{erro || 'Entre no Parallello para usar o Gerar Pré-Venda.'}</span></div>
   return (
     <AdminProvider>
       <ConexoesProvider>
@@ -44,28 +40,22 @@ function Programa() {
     window.api.atualizacao.versao().then(setVersao).catch(() => undefined)
   }, [])
 
-  // Área administrativa fechou: volta para o pedido se estava numa aba oculta
+  // Saiu do super administrador: volta para o pedido se estava numa aba de administração
   useEffect(() => {
-    if ((!admin.perfil && ABAS_ADMIN.includes(aba)) || (!admin.ehSuper && ['conexoes', 'eventos', 'aparencia', 'empresas', 'modelos', 'cobranca'].includes(aba))) setAba('pedido')
-  }, [admin.perfil, admin.ehSuper]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!admin.ehSuper && ABAS_ADMIN.includes(aba)) setAba('pedido')
+  }, [admin.ehSuper]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const itens: { id: Aba; rotulo: string; icone: string; mostrar: boolean }[] = [
     { id: 'pedido', rotulo: 'Pedido', icone: 'pedido', mostrar: true },
     { id: 'historico', rotulo: 'Histórico', icone: 'historico', mostrar: true },
-    // administrador da empresa: só Usuários; o resto é do super administrador
-    { id: 'conexoes', rotulo: 'Conexões', icone: 'banco', mostrar: admin.ehSuper },
-    { id: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', mostrar: !!admin.perfil },
-    { id: 'eventos', rotulo: 'Eventos do sistema', icone: 'eventos', mostrar: admin.ehSuper },
-    { id: 'aparencia', rotulo: 'Aparência', icone: 'imagem', mostrar: admin.ehSuper },
-    { id: 'empresas', rotulo: 'Empresas', icone: 'empresa', mostrar: admin.ehSuper },
-    { id: 'cobranca', rotulo: 'Cobrança', icone: 'dinheiro', mostrar: admin.ehSuper },
-    { id: 'modelos', rotulo: 'Modelos de Pedido', icone: 'modelo', mostrar: admin.ehSuper }
+    { id: 'modelos', rotulo: 'Modelos de Pedido', icone: 'modelo', mostrar: admin.ehSuper },
+    { id: 'aparencia', rotulo: 'Aparência', icone: 'imagem', mostrar: admin.ehSuper }
   ]
   const visiveis = itens.filter((i) => i.mostrar)
 
   return (
     <div className="casca">
-      <Faixa irPara={(a) => setAba(a)} />
+      <Faixa irPara={() => void window.api.parallello.pedirPainel()} />
       <AvisoLicenca />
       <div className="corpo">
         <nav className="nav" aria-label="Menu">
@@ -77,23 +67,13 @@ function Programa() {
               </button>
             </div>
           ))}
-          {admin.perfil && !admin.automatico && (
-            <button className="nav-fechar-admin" onClick={() => admin.fechar()}>
-              <Icone nome="cadeado" /> <span className="rotulo-nav">Fechar administração</span>
-            </button>
-          )}
           <div className="rodape"><span className="rotulo-nav">Versão </span>{versao}</div>
         </nav>
         {/* O pedido fica montado o tempo todo para não perder o que foi feito ao trocar de aba. */}
         <Pagina_Pedido visivel={aba === 'pedido'} />
         <Pagina_Historico visivel={aba === 'historico'} />
-        {admin.ehSuper && aba === 'conexoes' && <Pagina_Conexoes />}
-        {admin.perfil && <Pagina_Usuarios visivel={aba === 'usuarios'} />}
-        {admin.ehSuper && <Pagina_Eventos visivel={aba === 'eventos'} />}
         {admin.ehSuper && <Pagina_Aparencia visivel={aba === 'aparencia'} />}
         {admin.ehSuper && <Pagina_Modelos visivel={aba === 'modelos'} />}
-        {admin.ehSuper && <Pagina_Cobranca visivel={aba === 'cobranca'} />}
-        {admin.ehSuper && <Pagina_Empresas visivel={aba === 'empresas'} irParaPedido={() => setAba('pedido')} />}
       </div>
     </div>
   )

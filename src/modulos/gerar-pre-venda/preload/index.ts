@@ -50,6 +50,17 @@ const api: Api = {
     listar: () => chamar('fila:listar'),
     remover: (chaves) => chamar('fila:remover', chaves)
   },
+  parallello: {
+    sessao: () => ipcRenderer.invoke('parallello:sessao'),
+    token: () => ipcRenderer.invoke('parallello:token'),
+    escolherEmpresa: (id) => ipcRenderer.invoke('parallello:escolherEmpresa', id),
+    pedirPainel: () => ipcRenderer.invoke('parallello:pedirPainel'),
+    aoMudar: (fn) => {
+      const ouvinte = (_: unknown, s: Parameters<typeof fn>[0]) => fn(s)
+      ipcRenderer.on('parallello:sessao-mudou', ouvinte)
+      return () => ipcRenderer.removeListener('parallello:sessao-mudou', ouvinte)
+    }
+  },
   atualizacao: {
     versao: () => ipcRenderer.invoke('atualizacao:versao'),
     instalar: () => ipcRenderer.invoke('atualizacao:instalar'),

@@ -70,24 +70,48 @@ module.exports = function criarModulo(ctx) {
   });
 
   // dados enviados para a tela nunca levam a senha
-  function dadosParaTela() {
+  // Conexão única do Parallello: as bases são as conexões cadastradas no Parallello
+  // (Ctrl+Shift+B na tela inicial), as mesmas de todos os sistemas. Todas as ativas são somadas.
+  const paraBase = (p) => ({
+    id: p.id,
+    nome: p.cliente && p.cliente !== p.nome ? `${p.cliente} › ${p.nome}` : p.nome,
+    servidor: p.servidor,
+    porta: p.porta ? String(p.porta) : '',
+    instancia: p.instancia || '',
+    banco: p.banco,
+    usuario: p.usuario,
+    ativa: true,
+    timeoutSeg: 180,
+    criptografar: !!p.criptografar,
+    temSenha: !!p.temSenha
+  });
+  async function basesCentrais() {
+    return (await ctx.conexoes.listar()).map(paraBase);
+  }
+
+  // dados enviados para a tela nunca levam a senha
+  async function dadosParaTela() {
     const d = JSON.parse(JSON.stringify(store.get()));
-    d.empresas.forEach((e) => e.bases.forEach((b) => {
-      b.temSenha = !!b.senhaCifrada;
-      delete b.senhaCifrada;
-    }));
+    const bases = await basesCentrais();
+    d.empresas.forEach((e) => { e.bases = bases; });
     if (d.preferencias) delete d.preferencias.senhaConfigHash;
     d.pastaDados = store.pasta();
     d.configLiberada = configLiberada;
     d.versaoApp = ctx.versao;
+    d.basesDoParallello = true;
     return d;
   }
 
-  function empresaAtiva() {
+  async function empresaAtiva() {
     const d = store.get();
     const e = d.empresas.find((x) => x.id === d.empresaAtivaId);
     if (!e) throw new Error('Nenhuma empresa selecionada.');
-    return e;
+    // a senha vai só na memória, para a consulta (b64: é lido pelo decifrador do db.cjs)
+    const bases = await Promise.all((await basesCentrais()).map(async (b) => ({
+      ...b,
+      senhaCifrada: 'b64:' + Buffer.from(await ctx.conexoes.senha(b.id), 'utf8').toString('base64')
+    })));
+    return { ...e, bases };
   }
 
   function progresso(msg) {
@@ -101,16 +125,8 @@ module.exports = function criarModulo(ctx) {
     exigirConfig();
     store.atualizar((d) => {
       const atual = d.empresas.find((x) => x.id === empresa.id);
-      const bases = (empresa.bases || []).map((b) => {
-        const antiga = atual ? atual.bases.find((x) => x.id === b.id) : null;
-        const base = { ...b, id: b.id || store.uid() };
-        if (b.novaSenha !== undefined && b.novaSenha !== null && b.novaSenha !== '') base.senhaCifrada = cifrar(b.novaSenha);
-        else base.senhaCifrada = antiga ? antiga.senhaCifrada : '';
-        delete base.novaSenha;
-        delete base.temSenha;
-        return base;
-      });
-      const nova = { ...(atual || store.novaEmpresa(empresa.nome)), ...empresa, bases };
+      const { bases: _bases, ...resto } = empresa; // bases: as conexões do Parallello (não gravam aqui)
+      const nova = { ...(atual || store.novaEmpresa(empresa.nome)), ...resto, bases: [] };
       if (atual) d.empresas = d.empresas.map((x) => (x.id === nova.id ? nova : x));
       else d.empresas.push(nova);
       if (!d.empresaAtivaId) d.empresaAtivaId = nova.id;
@@ -151,15 +167,11 @@ module.exports = function criarModulo(ctx) {
     return dadosParaTela();
   });
 
-  ipcMain.handle('base:testar', async (_e, { empresaId, base }) => {
+  ipcMain.handle('base:testar', async (_e, { base }) => {
     exigirConfig();
-    const d = store.get();
-    const emp = d.empresas.find((x) => x.id === empresaId);
-    const salva = emp ? emp.bases.find((x) => x.id === base.id) : null;
-    const teste = { ...base, id: 'teste-' + (base.id || 'nova') };
-    teste.senhaCifrada = base.novaSenha ? cifrar(base.novaSenha) : salva ? salva.senhaCifrada : '';
     try {
-      const r = await db.testar(teste);
+      const senha = await ctx.conexoes.senha(base.id);
+      const r = await db.testar({ ...base, id: 'teste-' + base.id, senhaCifrada: 'b64:' + Buffer.from(senha, 'utf8').toString('base64') });
       return { ok: true, ...r };
     } catch (err) {
       return { ok: false, erro: err.message };
@@ -195,7 +207,7 @@ module.exports = function criarModulo(ctx) {
     const rel = RELATORIOS.find((r) => r.id === id);
     if (!rel) throw new Error('Relatório não encontrado.');
     validarPeriodo(filtros);
-    const emp = empresaAtiva();
+    const emp = await empresaAtiva();
     const t0 = Date.now();
     const porBase = await db.executarEmTodas(emp, rel.consultas(emp, filtros), { ini: filtros.ini, fim: filtros.fim }, progresso);
     progresso('Montando o relatório...');
@@ -206,9 +218,9 @@ module.exports = function criarModulo(ctx) {
   });
 
   // refaz a montagem com novos filtros locais, sem consultar o banco de novo
-  ipcMain.handle('relatorio:remontar', (_e, { id, filtros }) => {
+  ipcMain.handle('relatorio:remontar', async (_e, { id, filtros }) => {
     const rel = RELATORIOS.find((r) => r.id === id);
-    const emp = empresaAtiva();
+    const emp = await empresaAtiva();
     const c = cache.get(id);
     if (!c || c.empresaId !== emp.id) return null;
     const f = { ...filtros, ...c.filtrosConsulta };

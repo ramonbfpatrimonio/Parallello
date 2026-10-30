@@ -126,39 +126,25 @@ export default function EmpresasPage({ dados, setDados, avisar }) {
         <div className="secao">
           <div className="secao-topo">
             <h3><Database size={15} style={{ verticalAlign: -2 }} /> Bases de dados (SQL Server)</h3>
-            <button className="btn" onClick={() => mudar({ bases: [...form.bases, BASE_NOVA()] })}><Plus size={15} /> Adicionar base</button>
           </div>
           <p className="ajuda" style={{ marginBottom: 10 }}>
-            Os relatórios consultam todas as bases ativas e somam o resultado (ex.: Hage.0001.Log + Hage.0002.Log).
-            A senha fica guardada criptografada neste computador.
+            As bases são as conexões do Parallello (as mesmas de todos os sistemas). Para incluir ou alterar,
+            use a configuração do Parallello: <b>Ctrl+Shift+B</b> na tela inicial. Os relatórios consultam todas e somam o resultado.
           </p>
-          {!form.bases.length && <Aviso tipo="info">Nenhuma base cadastrada. Clique em “Adicionar base”.</Aviso>}
+          {!form.bases.length && <Aviso tipo="info">Nenhuma conexão cadastrada no Parallello para esta empresa.</Aviso>}
           {form.bases.map((b, i) => {
             const t = testes[i];
             return (
               <div className="base" key={b.id || 'n' + i}>
                 <div className="base-topo">
-                  <b className="base-nome">{b.nome || b.banco || 'Nova base'}</b>
+                  <b className="base-nome">{b.nome || b.banco}</b>
+                  <span className="ajuda">{b.servidor}{b.instancia ? '\\' + b.instancia : ''}{b.porta ? ',' + b.porta : ''} · {b.banco}{b.temSenha ? '' : ' · sem senha neste computador'}</span>
                   {t && !t.testando && (t.ok
                     ? <span className="selo ok">Conectado • {Number(t.prevendas).toLocaleString('pt-BR')} pré-vendas</span>
                     : <span className="selo bad">Falhou</span>)}
-                  <Toggle checked={b.ativa !== false} onChange={(v) => mudarBase(i, { ativa: v })}>Ativa</Toggle>
                   <button className="btn mini" onClick={() => testar(i)} disabled={t && t.testando}>
                     <PlugZap size={14} /> {t && t.testando ? 'Testando...' : 'Testar conexão'}
                   </button>
-                  <button className="btn mini perigo" onClick={() => mudar({ bases: form.bases.filter((_, j) => j !== i) })}><Trash2 size={14} /></button>
-                </div>
-                <div className="grade">
-                  <label className="campo"><span>Apelido</span><input className="input" value={b.nome} placeholder="Ex.: Loja 0001" onChange={(e) => mudarBase(i, { nome: e.target.value })} /></label>
-                  <label className="campo"><span>Servidor</span><input className="input" value={b.servidor} placeholder="192.168.1.199\SQLEXPRESS" onChange={(e) => mudarBase(i, { servidor: e.target.value })} /></label>
-                  <label className="campo"><span>Porta (opcional)</span><input className="input" value={b.porta || ''} placeholder="1433" onChange={(e) => mudarBase(i, { porta: e.target.value.replace(/\D/g, '') })} /></label>
-                  <label className="campo"><span>Banco</span><input className="input" value={b.banco} placeholder="Hage.0001.Log" onChange={(e) => mudarBase(i, { banco: e.target.value })} /></label>
-                  <label className="campo"><span>Usuário</span><input className="input" value={b.usuario} onChange={(e) => mudarBase(i, { usuario: e.target.value })} /></label>
-                  <label className="campo"><span>Senha</span>
-                    <input className="input" type="password" value={b.novaSenha || ''} placeholder={b.temSenha ? '•••••• (salva)' : ''} onChange={(e) => mudarBase(i, { novaSenha: e.target.value })} />
-                  </label>
-                  <label className="campo"><span>Tempo limite (segundos)</span><input className="input" value={b.timeoutSeg || 180} onChange={(e) => mudarBase(i, { timeoutSeg: e.target.value.replace(/\D/g, '') })} /></label>
-                  <div className="campo"><span>Conexão</span><Toggle checked={b.criptografar} onChange={(v) => mudarBase(i, { criptografar: v })}>Criptografar (TLS)</Toggle></div>
                 </div>
                 {t && !t.testando && !t.ok && <div style={{ marginTop: 10 }}><Aviso tipo="erro">{t.erro}</Aviso></div>}
               </div>

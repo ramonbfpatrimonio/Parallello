@@ -12,8 +12,18 @@ import path from 'path';
 
 const MARCA = '.migracao-verificada';
 
+// Cópia recursiva feita à mão, sem sobrescrever o que já existe. Não usa fs.cpSync: no Windows,
+// em algumas versões do Node 22, ele derruba o processo sem mensagem quando o caminho tem acento
+// (ex.: "Gerar Pré-Venda", "Indicador Logístico").
 function copiar(origem, destino) {
-  fs.cpSync(origem, destino, { recursive: true, errorOnExist: false, force: false });
+  const info = fs.statSync(origem);
+  if (info.isDirectory()) {
+    fs.mkdirSync(destino, { recursive: true });
+    for (const nome of fs.readdirSync(origem)) copiar(path.join(origem, nome), path.join(destino, nome));
+  } else if (info.isFile() && !fs.existsSync(destino)) {
+    fs.mkdirSync(path.dirname(destino), { recursive: true });
+    fs.copyFileSync(origem, destino);
+  }
 }
 
 function editarJson(arquivo, fn) {
@@ -63,6 +73,19 @@ const REGRAS = {
       }
       editarJson(path.join(d, 'conexoes.json'), (x) => {
         (x.perfis || []).forEach((p) => delete p.senhaCifrada);
+      });
+    },
+  },
+  'indicador-logistico': {
+    origens: (ad) => [path.join(ad, 'Indicador Logístico', 'dados'), path.join(ad, 'Indicador Logistico', 'dados'), path.join(ad, 'indicador-logistico', 'dados')],
+    temDados: (o) => fs.existsSync(path.join(o, 'usuarios.json')) || fs.existsSync(path.join(o, 'conexoes.json')),
+    copiar: (o, d) => {
+      copiar(o, d);
+      // 'ss:' = cifrada pelo Windows com a chave do programa antigo; 'gcm:' (chave do computador) continua valendo
+      editarJson(path.join(d, 'conexoes.json'), (x) => {
+        (Array.isArray(x) ? x : []).forEach((c) => {
+          if (String(c.senhaCripto || '').startsWith('ss:')) c.senhaCripto = '';
+        });
       });
     },
   },

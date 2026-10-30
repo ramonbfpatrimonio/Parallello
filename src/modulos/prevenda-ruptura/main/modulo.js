@@ -46,13 +46,33 @@ module.exports = function criarModulo(ctx) {
   function exigirConfig() {
     if (!sessao.configLiberada) throw new Error('Área de configuração bloqueada.');
   }
-  function conexaoPorId(id) {
-    const c = store.config().conexoes.find((x) => x.id === id);
-    if (!c) throw new Error('Conexão não encontrada.');
+  // Conexão única do Parallello: as conexões vêm da configuração do Parallello (Ctrl+Shift+B na
+  // tela inicial), as mesmas de todos os sistemas. Aqui só se escolhe com qual trabalhar.
+  const paraConexao = (p) => ({
+    id: p.id,
+    nome: p.cliente && p.cliente !== p.nome ? `${p.cliente} › ${p.nome}` : p.nome,
+    servidor: p.servidor,
+    porta: p.porta ? String(p.porta) : '',
+    instancia: p.instancia || '',
+    banco: p.banco,
+    usuario: p.usuario,
+    encrypt: !!p.criptografar,
+    temSenha: !!p.temSenha,
+  });
+  async function conexoes() { return (await ctx.conexoes.listar()).map(paraConexao); }
+  async function conexaoPorId(id) {
+    const c = (await conexoes()).find((x) => x.id === id);
+    if (!c) throw new Error('Conexão não encontrada. Confira a configuração do Parallello (Ctrl+Shift+B na tela inicial).');
     return c;
   }
-  async function poolDe(c) { return db.obterPool(c, store.decripto(c.senhaCripto)); }
-  async function poolAtual() { exigirLogin(); return poolDe(conexaoPorId(sessao.conexao.id)); }
+  async function poolDe(c) { return db.obterPool(c, await ctx.conexoes.senha(c.id)); }
+  async function poolAtual() { exigirLogin(); return poolDe(await conexaoPorId(sessao.conexao.id)); }
+  const usuarioParallello = () => {
+    const u = ctx.usuario();
+    if (!u) throw new Error('Entre no Parallello.');
+    return u;
+  };
+  const NA_CONFIG_PARALLELLO = 'As conexões e os usuários agora ficam no Parallello: conexões em Ctrl+Shift+B na tela inicial, usuários em "Liberar módulos".';
   // Senha master fixa: '@t1v0ERP10' + data do computador (DDMMAAAA). Ex.: 29/10/2026 -> @t1v0ERP1029102026
   function senhaMasterDoDia(d = new Date()) {
     const dd = String(d.getDate()).padStart(2, '0');
@@ -65,18 +85,18 @@ module.exports = function criarModulo(ctx) {
     return a.length === b.length && require('crypto').timingSafeEqual(a, b);
   }
   const novoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const semSenha = (c) => ({ ...c, senhaCripto: undefined, temSenha: !!c.senhaCripto });
 
   // --------------------------------------------------------------
   // Estado inicial / login
   // --------------------------------------------------------------
-  handle('app:estado', () => {
+  handle('app:estado', async () => {
     const c = store.config();
+    const u = ctx.usuario();
     return {
-      primeiroUso: c.usuarios.length === 0,
-      conexoes: c.conexoes.map((x) => ({ id: x.id, nome: x.nome })),
+      primeiroUso: false, // usuários: os do Parallello
+      conexoes: (await conexoes()).map((x) => ({ id: x.id, nome: x.nome })),
       ultimaConexaoId: c.ultimaConexaoId,
-      ultimoUsuario: c.ultimoUsuario,
+      ultimoUsuario: u ? u.nome : '',
       demo: DEMO,
       versao: ctx.versao,
       estacao: os.hostname(),
@@ -84,32 +104,18 @@ module.exports = function criarModulo(ctx) {
     };
   });
 
-  handle('setup:inicial', ({ senhaMaster, usuario, senha }) => {
-    const c = store.config();
-    if (c.usuarios.length) throw new Error('A configuração inicial já foi feita.');
-    if (!confereMaster(senhaMaster)) throw new Error('Senha master incorreta.');
-    if (!usuario || usuario.trim().length < 3) throw new Error('Usuário deve ter pelo menos 3 caracteres.');
-    if (!senha || senha.length < 3) throw new Error('Senha deve ter pelo menos 3 caracteres.');
-    c.usuarios.push({ id: novoId(), usuario: usuario.trim(), ...store.gerarHash(senha), ativo: true, criadoEm: new Date().toISOString() });
-    c.ultimoUsuario = usuario.trim();
-    store.salvarConfig(c);
-    sessao.configLiberada = true; // já abre a configuração para cadastrar a primeira conexão
-    return true;
-  });
+  handle('setup:inicial', () => { throw new Error(NA_CONFIG_PARALLELLO); });
 
-  handle('auth:login', async ({ usuario, senha, conexaoId }) => {
+  // Login: quem entrou no Parallello. Aqui só se escolhe a empresa (conexão) e testa o banco.
+  handle('auth:login', async ({ conexaoId }) => {
     const c = store.config();
-    const u = c.usuarios.find((x) => x.usuario.toLowerCase() === String(usuario || '').trim().toLowerCase());
-    if (!u) throw new Error(`USUÁRIO NÃO CADASTRADO!\n\nO usuário '${usuario}' não foi encontrado.`);
-    if (!u.ativo) throw new Error('Usuário desativado.');
-    if (!store.confere(senha, u)) throw new Error('SENHA INCORRETA! Tente novamente.');
-    const con = c.conexoes.find((x) => x.id === conexaoId);
+    const u = usuarioParallello();
+    const con = (await conexoes()).find((x) => x.id === conexaoId);
     if (!con) throw new Error('Selecione a empresa/conexão.');
     await poolDe(con); // testa a conexão já no login
-    sessao.usuario = u.usuario;
+    sessao.usuario = u.nome;
     sessao.conexao = { id: con.id, nome: con.nome, banco: con.banco, servidor: con.servidor };
     c.ultimaConexaoId = con.id;
-    c.ultimoUsuario = u.usuario;
     store.salvarConfig(c);
     return { usuario: sessao.usuario, conexao: sessao.conexao };
   });
@@ -126,99 +132,29 @@ module.exports = function criarModulo(ctx) {
   });
   handle('config:fechar', () => { sessao.configLiberada = false; return true; });
 
-  handle('config:dados', () => {
+  handle('config:dados', async () => {
     exigirConfig();
     const c = store.config();
     return {
-      conexoes: c.conexoes.map(semSenha),
-      usuarios: c.usuarios.map((u) => ({ id: u.id, usuario: u.usuario, ativo: u.ativo, criadoEm: u.criadoEm })),
+      conexoes: await conexoes(),
+      usuarios: [],
       parametros: c.parametros,
       pastaDados: store.pastaDados(),
       scripts: db.SCRIPT_TABELAS,
     };
   });
 
-  function normalizarConexao(dados) {
-    const obrig = { nome: 'Nome da empresa', servidor: 'Servidor', banco: 'Banco de dados', usuario: 'Usuário do SQL' };
-    for (const [k, rotulo] of Object.entries(obrig)) {
-      if (!String(dados[k] || '').trim()) throw new Error(`Preencha: ${rotulo}.`);
-    }
-    return {
-      nome: dados.nome.trim(),
-      servidor: dados.servidor.trim(),
-      porta: String(dados.porta || '').trim(),
-      instancia: String(dados.instancia || '').trim(),
-      banco: dados.banco.trim(),
-      usuario: dados.usuario.trim(),
-      encrypt: !!dados.encrypt,
-    };
-  }
 
-  handle('config:salvarConexao', ({ dados, senha }) => {
-    exigirConfig();
-    const c = store.config();
-    const base = normalizarConexao(dados);
-    if (dados.id) {
-      const i = c.conexoes.findIndex((x) => x.id === dados.id);
-      if (i < 0) throw new Error('Conexão não encontrada.');
-      c.conexoes[i] = { ...c.conexoes[i], ...base, ...(senha ? { senhaCripto: store.cripto(senha) } : {}) };
-    } else {
-      if (!senha) throw new Error('Informe a senha do banco.');
-      c.conexoes.push({ id: novoId(), ...base, senhaCripto: store.cripto(senha) });
-    }
-    store.salvarConfig(c);
-    return true;
-  });
 
-  handle('config:excluirConexao', (id) => {
-    exigirConfig();
-    const c = store.config();
-    c.conexoes = c.conexoes.filter((x) => x.id !== id);
-    if (c.ultimaConexaoId === id) c.ultimaConexaoId = null;
-    store.salvarConfig(c);
-    return true;
-  });
+  handle('config:salvarConexao', () => { throw new Error(NA_CONFIG_PARALLELLO); });
 
-  handle('config:testarConexao', async ({ dados, senha }) => {
-    exigirConfig();
-    let s = senha;
-    if (!s && dados.id) s = store.decripto(conexaoPorId(dados.id).senhaCripto);
-    return db.testarConexao(normalizarConexao(dados), s);
-  });
+  handle('config:excluirConexao', () => { throw new Error(NA_CONFIG_PARALLELLO); });
 
-  handle('config:salvarUsuario', ({ id, usuario, senha, ativo }) => {
-    exigirConfig();
-    const c = store.config();
-    const nome = String(usuario || '').trim();
-    if (nome.length < 3) throw new Error('Usuário deve ter pelo menos 3 caracteres!');
-    if (c.usuarios.some((u) => u.usuario.toLowerCase() === nome.toLowerCase() && u.id !== id)) throw new Error('Usuário já existe! Escolha outro nome.');
-    if (id) {
-      const u = c.usuarios.find((x) => x.id === id);
-      if (!u) throw new Error('Usuário não encontrado.');
-      u.usuario = nome;
-      u.ativo = ativo !== false;
-      if (senha) {
-        if (senha.length < 3) throw new Error('Senha deve ter pelo menos 3 caracteres!');
-        Object.assign(u, store.gerarHash(senha));
-      }
-    } else {
-      if (!senha || senha.length < 3) throw new Error('Senha deve ter pelo menos 3 caracteres!');
-      c.usuarios.push({ id: novoId(), usuario: nome, ...store.gerarHash(senha), ativo: true, criadoEm: new Date().toISOString() });
-    }
-    if (!c.usuarios.some((u) => u.ativo)) throw new Error('É preciso manter pelo menos um usuário ativo.');
-    store.salvarConfig(c);
-    return true;
-  });
+  handle('config:testarConexao', () => { throw new Error(NA_CONFIG_PARALLELLO); });
 
-  handle('config:excluirUsuario', (id) => {
-    exigirConfig();
-    const c = store.config();
-    const resto = c.usuarios.filter((x) => x.id !== id);
-    if (!resto.some((u) => u.ativo)) throw new Error('É preciso manter pelo menos um usuário ativo.');
-    c.usuarios = resto;
-    store.salvarConfig(c);
-    return true;
-  });
+  handle('config:salvarUsuario', () => { throw new Error(NA_CONFIG_PARALLELLO); });
+
+  handle('config:excluirUsuario', () => { throw new Error(NA_CONFIG_PARALLELLO); });
 
   handle('config:salvarParametros', (p) => {
     exigirConfig();
@@ -237,8 +173,8 @@ module.exports = function criarModulo(ctx) {
     return c.parametros;
   });
 
-  handle('config:verificarTabelas', async (id) => { exigirConfig(); return db.verificarTabelas(await poolDe(conexaoPorId(id))); });
-  handle('config:criarTabela', async ({ id, nome }) => { exigirConfig(); return db.criarTabela(await poolDe(conexaoPorId(id)), nome); });
+  handle('config:verificarTabelas', async (id) => { exigirConfig(); return db.verificarTabelas(await poolDe(await conexaoPorId(id))); });
+  handle('config:criarTabela', async ({ id, nome }) => { exigirConfig(); return db.criarTabela(await poolDe(await conexaoPorId(id)), nome); });
   handle('config:abrirPasta', () => { shell.openPath(store.pastaDados()); return true; });
 
   // --------------------------------------------------------------

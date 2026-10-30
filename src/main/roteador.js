@@ -44,3 +44,8 @@ export function vincularTela(webContentsId, moduloId) {
 export function desvincularTela(webContentsId) {
   donos.delete(webContentsId);
 }
+
+/** Módulo dono de uma tela (ou undefined se não for tela de módulo). */
+export function moduloDaTela(webContentsId) {
+  return donos.get(webContentsId);
+}

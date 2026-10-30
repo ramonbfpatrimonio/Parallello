@@ -20,7 +20,13 @@ criarModulo({
   pastaDados: path.join(tmp, 'dados'),
   versao: '1.0.0',
   janela: () => null,
-  enviar() {}
+  enviar() {},
+  usuario: () => ({ id: 'u1', nome: 'Teste', ehAdmin: true }),
+  // conexão única do Parallello (simulada)
+  conexoes: {
+    listar: async () => [{ id: 'c1', cliente: 'Hage', nome: 'COMERCIO', servidor: '127.0.0.1', porta: 1, instancia: '', banco: 'Hage.0001.Log', usuario: 'sa', criptografar: false, temSenha: true }],
+    senha: async () => 'segredo'
+  }
 });
 (async () => {
   const call = (c, d) => handlers[c]({}, d);
@@ -41,14 +47,10 @@ criarModulo({
   console.log('hash da senha vai para a tela?', JSON.stringify(d).includes('senhaConfigHash'));
   console.log('empresas:', d.empresas.map((e) => e.nome), '| canais:', Object.keys(handlers).length);
   const emp = d.empresas[0];
-  emp.bases = [{ nome: 'Teste', servidor: '127.0.0.1,1\\X', banco: 'Hage.0001.Log', usuario: 'sa', novaSenha: 'segredo', ativa: true }];
-  d = await call('empresa:salvar', emp);
+  console.log('bases vêm do Parallello:', emp.bases.map((b) => `${b.nome} (${b.banco})`).join(', '), '| senha na tela?', JSON.stringify(d).includes('segredo'));
+  d = await call('empresa:salvar', { ...emp, bases: [{ nome: 'ignorada' }] });
   const salvo = JSON.parse(fs.readFileSync(path.join(tmp, 'dados', 'dados.json'), 'utf8'));
-  console.log('senha na tela?', JSON.stringify(d).includes('segredo'), '| senha em texto puro no arquivo?', JSON.stringify(salvo).includes('segredo'), '| temSenha:', d.empresas[0].bases[0].temSenha);
-  // salvar de novo sem digitar senha mantém a senha
-  await call('empresa:salvar', d.empresas[0]);
-  const salvo2 = JSON.parse(fs.readFileSync(path.join(tmp, 'dados', 'dados.json'), 'utf8'));
-  console.log('senha mantida ao salvar sem digitar:', salvo2.empresas[0].bases[0].senhaCifrada === salvo.empresas[0].bases[0].senhaCifrada);
+  console.log('bases não gravam no Acompanhamento:', salvo.empresas[0].bases.length === 0, '| senha no arquivo?', JSON.stringify(salvo).includes('segredo'));
   console.log('relatórios:', (await call('relatorios:listar')).map((r) => r.id).join(', '));
   try { await call('relatorio:executar', { id: 'ruptura', filtros: { ini: '2026-10-05', fim: '2026-10-01' } }); } catch (e) { console.log('validação período:', e.message); }
   try { await call('relatorio:executar', { id: 'ruptura', filtros: { ini: '2026-10-01', fim: '2026-10-05' } }); } catch (e) { console.log('sem servidor:', e.message.slice(0, 90)); }

@@ -15,6 +15,11 @@ function Raiz() {
   const [sessao, setSessao] = useState(null);
   const [pedirSenha, setPedirSenha] = useState(false);
   const [configAberta, setConfigAberta] = useState(false);
+  // Abre direto (o usuário é o do Parallello): entra sozinho na última empresa usada.
+  // A tela de escolha só aparece em "Trocar empresa" ou se o banco não responder.
+  const [escolher, setEscolher] = useState(false);
+  const [erroEntrada, setErroEntrada] = useState('');
+  const tentou = useRef(false);
 
   const recarregar = useCallback(async () => {
     const e = await window.api.estado();
@@ -23,6 +28,13 @@ function Raiz() {
     return e;
   }, []);
   useEffect(() => { recarregar(); }, [recarregar]);
+
+  useEffect(() => {
+    if (!estado || sessao || escolher || tentou.current || !estado.conexoes.length) return;
+    tentou.current = true;
+    const id = estado.conexoes.find((c) => c.id === estado.ultimaConexaoId)?.id || estado.conexoes[0].id;
+    window.api.login({ conexaoId: id }).then(setSessao).catch((e) => { setErroEntrada(e.message); setEscolher(true); });
+  }, [estado, sessao, escolher]);
 
   // Atalho oculto da configuração: Ctrl+Shift+B
   useEffect(() => {
@@ -37,6 +49,7 @@ function Raiz() {
   }, [estado, configAberta]);
 
   if (!estado) return null;
+  const entrandoSozinho = !sessao && !escolher && estado.conexoes.length > 0;
 
   const fecharConfig = async () => {
     await window.api.config.fechar();
@@ -47,9 +60,11 @@ function Raiz() {
   return (
     <>
       {sessao ? (
-        <Principal sessao={sessao} demo={estado.demo} versao={estado.versao} onSair={async () => { await window.api.logout(); setSessao(null); recarregar(); }} />
+        <Principal sessao={sessao} demo={estado.demo} versao={estado.versao} onSair={async () => { await window.api.logout(); setSessao(null); setEscolher(true); setErroEntrada(''); recarregar(); }} />
+      ) : entrandoSozinho ? (
+        <div className="abrindo"><span className="carregando" /> Conectando ao banco…</div>
       ) : (
-        <Entrada estado={estado} onSetupFeito={async () => { await recarregar(); setConfigAberta(true); }} onLogin={setSessao} />
+        <Entrada estado={estado} erroInicial={erroEntrada} onSetupFeito={async () => { await recarregar(); setConfigAberta(true); }} onLogin={(s) => { setErroEntrada(''); setSessao(s); }} />
       )}
       {pedirSenha && <SenhaMaster onCancelar={() => setPedirSenha(false)} onOk={() => { setPedirSenha(false); setConfigAberta(true); }} />}
       {configAberta && <Configuracao onFechar={fecharConfig} />}
@@ -106,7 +121,7 @@ function Principal({ sessao, demo, versao, onSair }) {
 
   const sair = async () => {
     setAberto(false);
-    if (await dlg.confirmar('Deseja realmente sair? Você precisará fazer login novamente.', { titulo: 'Sair do sistema' })) onSair();
+    if (await dlg.confirmar('Voltar para a escolha da empresa?', { titulo: 'Trocar empresa' })) onSair();
   };
   const ir = (id) => { setTela(id); setAberto(false); };
   const inicial = sessao.usuario.trim().charAt(0).toUpperCase();
@@ -140,8 +155,8 @@ function Principal({ sessao, demo, versao, onSair }) {
               {demo && <span className="demo-tag">Modo demonstração</span>}
               <span>v{versao}</span>
             </div>
-            <button className="sair" onClick={sair} title={aberto ? undefined : 'Sair'}>
-              <Icone nome="sair" /><span className="rot">Sair</span>
+            <button className="sair" onClick={sair} title={aberto ? undefined : 'Trocar empresa'}>
+              <Icone nome="sair" /><span className="rot">Trocar empresa</span>
             </button>
           </div>
         </aside>

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Campo, Modal, fmtDataHora, useDialogos } from '../ui.jsx';
 
-const ABAS = [['conexoes', 'Empresas e conexões'], ['usuarios', 'Usuários'], ['banco', 'Banco de dados'], ['parametros', 'Parâmetros']];
+// Conexões e usuários agora são do Parallello (Ctrl+Shift+B na tela inicial / Liberar módulos).
+const ABAS = [['banco', 'Banco de dados'], ['parametros', 'Parâmetros']];
 
 export default function Configuracao({ onFechar }) {
   const dlg = useDialogos();
-  const [aba, setAba] = useState('conexoes');
+  const [aba, setAba] = useState('banco');
   const [dados, setDados] = useState(null);
   const recarregar = () => window.api.config.dados().then(setDados).catch((e) => dlg.erro(e));
   useEffect(() => { recarregar(); }, []);
@@ -165,7 +166,7 @@ function Banco({ dados }) {
     if (!(await dlg.confirmar(`Criar a tabela dbo.${nome} no banco desta empresa?`, { titulo: 'Criar tabela', sim: 'Criar tabela', nao: 'Cancelar' }))) return;
     try { await window.api.config.criarTabela({ id, nome }); dlg.toast(`Tabela ${nome} criada.`); verificar(); } catch (e) { dlg.erro(e); }
   };
-  if (!dados.conexoes.length) return <p className="desc">Cadastre uma conexão primeiro.</p>;
+  if (!dados.conexoes.length) return <p className="desc">Nenhuma conexão com o banco. Cadastre na configuração do Parallello (Ctrl+Shift+B na tela inicial).</p>;
   const faltando = res?.filter((t) => !t.existe) || [];
   return (
     <>

@@ -1,6 +1,5 @@
 // Testes do Parallello: migração dos dados dos programas antigos e catálogo.
 // (o roteador de IPC e as telas são testados abrindo o programa: npm run dev)
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs'
 import os from 'os'
@@ -23,6 +22,37 @@ async function carregar(arquivo, opcoes = {}) {
 
 const { migrarSePreciso } = await carregar('src/main/migracao.js')
 const { CATALOGO } = await carregar('src/modulos/catalogo.js')
+// roteador com um "electron" falso (o ipcMain falso é lido quando o módulo carrega)
+const registrados = {}
+globalThis.__ipcFalso = { handle: (c, fn) => { registrados[c] = fn } }
+const R = await carregar('src/main/roteador.js', {
+  plugins: [{ name: 'electron-falso', setup(b) {
+    b.onResolve({ filter: /^electron$/ }, () => ({ path: 'electron', namespace: 'falso' }))
+    b.onLoad({ filter: /.*/, namespace: 'falso' }, () => ({ contents: 'export const ipcMain = globalThis.__ipcFalso' }))
+  } }]
+})
+const { ehSenhaMaster, dataMaster } = await carregar('src/compartilhado/master.js')
+// sessao.js com a nuvem e o Electron simulados
+const NOMES_NUVEM = ['definirMeusModulos', 'entrar', 'entrarMaster', 'sair', 'token', 'usuarioId', 'online', 'meuPerfil', 'licenca', 'empresas', 'definirModulosEmpresa', 'usuarios', 'criarUsuario', 'alterarUsuario', 'trocarSenha', 'definirModulos', 'conexoes', 'registrarEvento']
+const { criarSessao } = await carregar('src/main/sessao.js', {
+  plugins: [{
+    name: 'simulados',
+    setup(b) {
+      b.onResolve({ filter: /^electron$/ }, () => ({ path: 'electron', namespace: 'sim' }))
+      b.onResolve({ filter: /nuvem\.js$/ }, (a) => (a.importer.endsWith('sessao.js') ? { path: 'nuvem', namespace: 'sim' } : undefined))
+      b.onLoad({ filter: /^electron$/, namespace: 'sim' }, () => ({ contents: 'export const safeStorage = { isEncryptionAvailable: () => false }' }))
+      b.onLoad({ filter: /^nuvem$/, namespace: 'sim' }, () => ({
+        contents:
+          NOMES_NUVEM.map((n) => `export const ${n} = (...a) => globalThis.__nuvem.${n}(...a)`).join('\n') +
+          '\nexport const ehErroDeRede = (e) => /fetch failed|sem internet/i.test(e?.message ?? String(e))'
+      }))
+    }
+  }]
+})
+
+// Só agora carrega o node:test: no Windows (Node 22) o processo caía sem mensagem
+// quando os testes começavam a rodar enquanto o arquivo ainda estava carregando módulos.
+const { test } = await import('node:test')
 
 test('migra o Pré-Venda de Ruptura antigo e tira a senha cifrada pelo programa antigo', () => {
   const t = pastaTemp()
@@ -84,6 +114,22 @@ test('Gerar Pré-Venda: copia conexões sem a senha cifrada (cada computador inf
   assert.ok(!fs.existsSync(path.join(nova, 'acesso-offline.dat')))
 })
 
+test('Indicador Logístico: copia usuários, histórico e conexões; tira só a senha cifrada pelo Windows', () => {
+  const t = pastaTemp()
+  const antiga = path.join(t, 'appdata', 'Indicador Logístico', 'dados')
+  fs.mkdirSync(path.join(antiga, 'historico'), { recursive: true })
+  fs.writeFileSync(path.join(antiga, 'usuarios.json'), '[{"usuario":"ramon"}]')
+  fs.writeFileSync(path.join(antiga, 'conexoes.json'), JSON.stringify([{ nome: 'COMERCIO', senhaCripto: 'ss:abc' }, { nome: 'INDUSTRIA', senhaCripto: 'gcm:xyz' }]))
+  fs.writeFileSync(path.join(antiga, 'historico', 'indice.json'), '[]')
+  const nova = path.join(t, 'modulos', 'indicador-logistico')
+  assert.equal(migrarSePreciso('indicador-logistico', nova, path.join(t, 'appdata')), antiga)
+  const c = JSON.parse(fs.readFileSync(path.join(nova, 'conexoes.json'), 'utf8'))
+  assert.equal(c[0].senhaCripto, '')
+  assert.equal(c[1].senhaCripto, 'gcm:xyz')
+  assert.ok(fs.existsSync(path.join(nova, 'usuarios.json')))
+  assert.ok(fs.existsSync(path.join(nova, 'historico', 'indice.json')))
+})
+
 test('sem programa antigo: abre vazio e marca como verificado', () => {
   const t = pastaTemp()
   const nova = path.join(t, 'modulos', 'acompanhamento')
@@ -103,15 +149,6 @@ test('catálogo: ids únicos, todos com página, ícone e processo principal', a
 })
 
 test('roteador: o mesmo canal em dois módulos chega a cada um pelo remetente', async () => {
-  // carrega o roteador com um "electron" falso
-  const registrados = {}
-  globalThis.__ipcFalso = { handle: (c, fn) => { registrados[c] = fn } }
-  const R = await carregar('src/main/roteador.js', {
-    plugins: [{ name: 'electron-falso', setup(b) {
-      b.onResolve({ filter: /^electron$/ }, () => ({ path: 'electron', namespace: 'falso' }))
-      b.onLoad({ filter: /.*/, namespace: 'falso' }, () => ({ contents: 'export const ipcMain = globalThis.__ipcFalso' }))
-    } }]
-  })
   R.ipcDoModulo('a').handle('exportar:excel', () => 'A')
   R.ipcDoModulo('b').handle('exportar:excel', () => 'B')
   R.vincularTela(10, 'a')
@@ -120,4 +157,114 @@ test('roteador: o mesmo canal em dois módulos chega a cada um pelo remetente', 
   assert.equal(await registrados['exportar:excel']({ sender: { id: 20 } }), 'B')
   assert.throws(() => registrados['exportar:excel']({ sender: { id: 99 } }), /não está disponível/)
   assert.throws(() => R.ipcDoModulo('a').handle('parallello:estado', () => 0), /reservado/)
+})
+
+// ---------------------------------------------------------------- login do Parallello
+
+test('senha master: administrador + P@r@llell0 + data do computador', () => {
+  const dia = new Date(2026, 9, 30)
+  assert.equal(dataMaster(dia), '30102026')
+  assert.equal(ehSenhaMaster('P@r@llell030102026', dia), true)
+  assert.equal(ehSenhaMaster('P@r@llell029102026', dia), false, 'data de outro dia não vale')
+  assert.equal(ehSenhaMaster('P@rallell030102026', dia), false, 'prefixo errado')
+  assert.equal(ehSenhaMaster('30102026', dia), false)
+})
+
+const CATALOGO_TESTE = ['gerar-pre-venda', 'prevenda-ruptura', 'acompanhamento', 'pesquisa-relatorios', 'indicador-logistico'].map((id) => ({ id }))
+function nuvemFalsa(extra = {}) {
+  const base = { sair: async () => {}, registrarEvento: async () => {}, empresas: async () => [], conexoes: async () => [], token: async () => null }
+  globalThis.__nuvem = { ...base, ...extra }
+}
+const hoje = () => {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `P@r@llell0${p(d.getDate())}${p(d.getMonth() + 1)}${d.getFullYear()}`
+}
+
+test('master sem internet: abre a configuração, começa sem módulos e libera para si mesmo', async () => {
+  nuvemFalsa({ entrarMaster: async () => { throw new Error('fetch failed') } })
+  const s = criarSessao({ pasta: pastaTemp(), catalogo: CATALOGO_TESTE })
+  await assert.rejects(s.entrar('administrador', 'errada'), /incorretos/)
+  const pub = await s.entrar('Administrador', hoje())
+  assert.equal(pub.modo, 'master')
+  assert.equal(pub.configLiberada, true, 'administrador já abre a configuração')
+  assert.deepEqual(pub.modulos, [], 'tela inicial começa em branco')
+  assert.equal(pub.permitidos.length, 5, 'master pode usar todos')
+  assert.equal(s.podeAbrir('acompanhamento'), false)
+  await s.definirMeusModulos(['acompanhamento'])
+  assert.equal(s.podeAbrir('acompanhamento'), true)
+  assert.equal(s.podeAbrir('gerar-pre-venda'), false)
+  await assert.rejects(s.definirMeusModulos(['nao-existe']), /não tem acesso/)
+  await assert.rejects(s.listarUsuarios(), /nuvem/, 'usuários precisam da nuvem')
+})
+
+test('usuário da nuvem: só libera o que tem permissão; tela inicial mostra só o que ele liberou; depois entra sem internet', async () => {
+  const pasta = pastaTemp()
+  const perfil = { id: 'u1', nome: 'João', usuario: 'joao', papel: 'operador', ativo: true, empresa_id: 'e1', empresa_nome: 'Hage', empresa_ativa: true, empresa_modulos: ['acompanhamento', 'indicador-logistico'], modulos: ['acompanhamento', 'gerar-pre-venda'], modulos_visiveis: ['acompanhamento', 'indicador-logistico'] }
+  const logins = []
+  const escolhas = []
+  nuvemFalsa({
+    entrar: async (login) => { logins.push(login) },
+    meuPerfil: async () => perfil,
+    definirMeusModulos: async (m) => { escolhas.push(m); return m }
+  })
+  let s = criarSessao({ pasta, catalogo: CATALOGO_TESTE })
+  const pub = await s.entrar(' Joao ', 'segredo1')
+  assert.deepEqual(logins, ['joao'], 'login normalizado')
+  assert.equal(pub.modo, 'nuvem')
+  assert.equal(pub.configLiberada, false)
+  assert.deepEqual(pub.permitidos, ['acompanhamento'], 'gerar-pre-venda não foi contratado; indicador não foi permitido')
+  assert.deepEqual(pub.modulos, ['acompanhamento'], 'só aparece o que ele liberou e pode usar')
+  await assert.rejects(s.definirMeusModulos(['acompanhamento', 'indicador-logistico']), /não tem acesso ao módulo indicador-logistico/)
+  await s.definirMeusModulos([])
+  assert.deepEqual(escolhas, [[]])
+  assert.deepEqual(s.publico().modulos, [])
+  await assert.rejects(s.listarUsuarios(), /bloqueada/, 'configuração só com a senha master')
+  await s.sair()
+  assert.equal(s.logado(), false)
+
+  // sem internet: o acesso guardado neste computador
+  nuvemFalsa({ entrar: async () => { throw new Error('fetch failed') } })
+  s = criarSessao({ pasta, catalogo: CATALOGO_TESTE })
+  await assert.rejects(s.entrar('joao', 'errada'), /incorretos/)
+  const off = await s.entrar('joao', 'segredo1')
+  assert.equal(off.modo, 'offline')
+  assert.deepEqual(off.permitidos, ['acompanhamento'])
+  await assert.rejects(s.definirMeusModulos(['acompanhamento']), /Sem internet/)
+  await assert.rejects(s.entrar('maria', 'x'), /ainda não entrou neste computador/)
+})
+
+test('licença bloqueada ou usuário desativado não entram', async () => {
+  const perfil = { id: 'u2', nome: 'Ana', papel: 'admin', ativo: true, empresa_id: 'e1', empresa_nome: 'Hage', empresa_ativa: true, modulos: [], licenca: { vencimento: '2020-01-01', dias_aviso: 5, dias_tolerancia: 3, contato: '(92) 99999-0000', valor: 100, ciclo_meses: 1 } }
+  nuvemFalsa({ entrar: async () => {}, meuPerfil: async () => perfil })
+  const s = criarSessao({ pasta: pastaTemp(), catalogo: CATALOGO_TESTE })
+  await assert.rejects(s.entrar('ana', 'segredo1'), /Licença vencida em 01\/01\/2020.*\(92\) 99999-0000/)
+  perfil.licenca = null
+  perfil.ativo = false
+  await assert.rejects(s.entrar('ana', 'segredo1'), /desativado/)
+  assert.equal(s.logado(), false)
+})
+
+test('administrador da empresa: pode usar os contratados; na configuração (senha master) dá permissão aos usuários', async () => {
+  const chamadas = []
+  const perfil = { id: 'a1', nome: 'Admin', papel: 'admin', ativo: true, empresa_id: 'e1', empresa_nome: 'Hage', empresa_ativa: true, empresa_modulos: ['acompanhamento', 'pesquisa-relatorios'], modulos: [], modulos_visiveis: [] }
+  nuvemFalsa({
+    entrar: async () => {},
+    meuPerfil: async () => perfil,
+    usuarios: async () => [{ id: 'a1', nome: 'Admin', papel: 'admin', modulos: [] }, { id: 'o1', nome: 'Op', papel: 'operador', modulos: [] }, { id: 's1', nome: 'Super', papel: 'super_admin', modulos: [] }],
+    definirModulos: async (id, m) => { chamadas.push([id, m]); return m }
+  })
+  const s = criarSessao({ pasta: pastaTemp(), catalogo: CATALOGO_TESTE })
+  const pub = await s.entrar('admin', 'segredo1')
+  assert.deepEqual(pub.permitidos, ['acompanhamento', 'pesquisa-relatorios'], 'administrador usa os contratados')
+  await assert.rejects(s.listarUsuarios(), /bloqueada/)
+  assert.throws(() => s.liberarConfig('errada'), /incorreta/)
+  s.liberarConfig(hoje())
+  const { usuarios } = await s.listarUsuarios()
+  assert.deepEqual(usuarios.map((u) => u.id), ['a1', 'o1'], 'super administradores não aparecem')
+  await s.definirModulos('o1', ['pesquisa-relatorios', 'nao-existe'])
+  assert.deepEqual(chamadas, [['o1', ['pesquisa-relatorios']]])
+  await assert.rejects(s.criarUsuario({ usuario: 'administrador', senha: '123456' }), /reservado/)
+  s.fecharConfig()
+  await assert.rejects(s.listarUsuarios(), /bloqueada/)
 })

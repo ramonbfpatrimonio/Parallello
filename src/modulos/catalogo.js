@@ -36,6 +36,14 @@ export const CATALOGO = [
     pagina: 'modulos/pesquisa-relatorios/renderer/index.html',
     estatico: true, // página sem build (HTML/JS puro), copiada para out/ pelo scripts/build.mjs
   },
+  {
+    id: 'indicador-logistico',
+    nome: 'Indicador Logístico',
+    descricao: 'Cumprimento de entregas, prazo médio, custo por entrega e devoluções, com metas.',
+    cor: '#13998a',
+    fundo: '#eef3f4',
+    pagina: 'modulos/indicador-logistico/renderer/index.html',
+  },
 ];
 
 

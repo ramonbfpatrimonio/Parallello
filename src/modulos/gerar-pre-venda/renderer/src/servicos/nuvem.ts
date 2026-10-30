@@ -4,6 +4,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { DadosConexaoNuvem } from '@shared/tipos'
 import type { Licenca } from '@shared/licenca'
+import { URL_NUVEM, CHAVE_NUVEM } from '../../../../../compartilhado/nuvem-config.js'
 
 export type Papel = 'super_admin' | 'admin' | 'operador'
 
@@ -157,12 +158,11 @@ export interface Evento {
   empresas?: { nome: string } | null
 }
 
-// Projeto Supabase do Gerar Pré-Venda. A chave "anon" é pública por natureza:
+// Projeto Supabase do Parallello (era o do Gerar Pré-Venda). A chave "anon" é pública por natureza:
 // quem protege os dados são as políticas RLS (supabase/migrations).
 // Se existir um .env com VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, ele tem prioridade.
-const URL_PADRAO = 'https://pgbwgdnclmzlszvacdfo.supabase.co'
-const CHAVE_PADRAO =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBnYndnZG5jbG16bHN6dmFjZGZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIyNTE2MDYsImV4cCI6MjEwNzgyNzYwNn0.PaE9vlT9nU5BryxyH9BhLVnKjv7dEkwh4g9uY7ySIsk'
+const URL_PADRAO = URL_NUVEM
+const CHAVE_PADRAO = CHAVE_NUVEM
 
 const URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || URL_PADRAO
 const CHAVE = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || CHAVE_PADRAO
@@ -173,26 +173,26 @@ export function definirEstacao(nome: string) {
   estacao = (nome || '').normalize('NFD').replace(/[^\x20-\x7E]/g, '').slice(0, 60)
 }
 
-// O login vale só enquanto o programa está aberto: a sessão fica no
-// sessionStorage, que some quando o programa é fechado (ao reabrir, pede login).
-// Também apaga a sessão que versões antigas guardavam no localStorage.
-try {
-  Object.keys(localStorage).filter((k) => k.startsWith('sb-') && k.endsWith('-auth-token')).forEach((k) => localStorage.removeItem(k))
-} catch { /* sem acesso ao armazenamento: segue */ }
-
-function novoCliente(persistir: boolean): SupabaseClient {
+// Login único do Parallello: a sessão da nuvem fica no processo principal do Parallello.
+// Este cliente pede o token dela a cada chamada (sem token = sem internet ou modo master local:
+// as chamadas vão como anônimo e o banco recusa, como antes sem login).
+function novoCliente(): SupabaseClient {
   return createClient(URL, CHAVE, {
-    auth: persistir
-      ? { persistSession: true, autoRefreshToken: true, storage: window.sessionStorage }
-      : { persistSession: false, autoRefreshToken: true, storageKey: 'gpv-admin' },
+    accessToken: async () => (await window.api.parallello?.token().catch(() => null)) ?? null,
     global: { headers: { 'x-estacao': estacao } }
   })
 }
 
 let cliente: SupabaseClient | null = null
 function sb(): SupabaseClient {
-  if (!cliente) cliente = novoCliente(true)
+  if (!cliente) cliente = novoCliente()
   return cliente
+}
+
+/** Id do usuário da nuvem logado no Parallello (null = sem sessão na nuvem). */
+async function idDaSessao(): Promise<string | null> {
+  const s = await window.api.parallello?.sessao().catch(() => null)
+  return s && (s.modo === 'nuvem' || s.modo === 'master-nuvem') ? (s.perfil?.id ?? null) : null
 }
 
 const MSG_SEM_INTERNET = 'Sem conexão com a internet.'
@@ -265,49 +265,21 @@ function fabricar(obter: () => SupabaseClient): Nuvem {
   const sb = obter
   return {
   configurada: !!(URL && CHAVE),
-  async entrar(email, senha) {
-    try {
-      const { error } = await sb().auth.signInWithPassword({ email: email.trim(), password: senha })
-      if (error) throw new Error(traduzir(error.message))
-    } catch (e) {
-      throw new Error(traduzir((e as Error).message))
-    }
+  // O login é feito na tela do Parallello (um login só para todos os sistemas).
+  async entrar() {
+    throw new Error('O login é feito no Parallello.')
   },
-  async entrarMaster(email, senha) {
-    let token: string
-    try {
-      const { data, error } = await sb().functions.invoke('login-master', { body: { email: email.trim(), senha } })
-      if (error) {
-        // a função devolve { erro } no corpo das respostas 4xx
-        const ctx = (error as { context?: Response }).context
-        const corpo = ctx && typeof ctx.json === 'function' ? await ctx.json().catch(() => null) : null
-        if (corpo?.erro) throw new Error(corpo.erro)
-        if (/not found|404/i.test(error.message)) throw new Error('A função login-master ainda não foi publicada no Supabase (Edge Functions).')
-        throw new Error(traduzir(error.message))
-      }
-      if (data?.erro) throw new Error(data.erro)
-      token = data?.token_hash
-    } catch (e) {
-      throw new Error(traduzir((e as Error).message))
-    }
-    if (!token) throw new Error('Não foi possível entrar com a senha master.')
-    const { error } = await sb().auth.verifyOtp({ token_hash: token, type: 'magiclink' })
-    if (error) throw new Error(traduzir(error.message))
+  async entrarMaster() {
+    throw new Error('O login é feito no Parallello.')
   },
   async sair() {
-    try {
-      await sb().auth.signOut({ scope: 'local' })
-    } catch {
-      /* sem internet: a sessão local é apagada mesmo assim */
-    }
+    /* a sessão é do Parallello: sair é pelo menu do usuário, na barra do Parallello */
   },
   async usuarioAtualId() {
-    const { data } = await sb().auth.getSession()
-    return data.session?.user.id ?? null
+    return idDaSessao()
   },
   aoMudarSessao(fn) {
-    const { data } = sb().auth.onAuthStateChange((_ev, sessao) => fn(!!sessao))
-    return () => data.subscription.unsubscribe()
+    return window.api.parallello?.aoMudar((s) => fn(s.logado)) ?? (() => undefined)
   },
   async meuPerfil() {
     const id = await this.usuarioAtualId()
@@ -452,15 +424,10 @@ function fabricar(obter: () => SupabaseClient): Nuvem {
   }
 }
 
-/** Sessão normal do programa (fica salva neste computador). */
+/** Sessão do Parallello. */
 export const nuvemSupabase: Nuvem = fabricar(sb)
 
-/**
- * Sessão da área administrativa (Ctrl+Shift+B): cliente separado, só em memória.
- * Um administrador pode desbloquear no computador de um operador sem
- * desconectar o operador; o que ele fizer fica no nome dele.
- */
+/** A área administrativa usa a mesma sessão (a do Parallello). */
 export function criarNuvemAdmin(): Nuvem {
-  const c = novoCliente(false)
-  return fabricar(() => c)
+  return nuvemSupabase
 }

@@ -38,7 +38,8 @@ export async function compilarMain({ dev = false } = {}) {
     'gerar-pre-venda': src('modulos/gerar-pre-venda/preload/index.ts'),
     'prevenda-ruptura': src('modulos/prevenda-ruptura/main/preload.js'),
     acompanhamento: src('modulos/acompanhamento/main/preload.cjs'),
-    'pesquisa-relatorios': src('modulos/pesquisa-relatorios/preload.js')
+    'pesquisa-relatorios': src('modulos/pesquisa-relatorios/preload.js'),
+    'indicador-logistico': src('modulos/indicador-logistico/main/preload.js')
   }
   await Promise.all(
     Object.entries(preloads).map(([nome, entrada]) =>

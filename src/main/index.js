@@ -1,21 +1,33 @@
 // Parallello — processo principal.
 //
-// Uma janela com a barra do Parallello (tela inicial + abas) e, abaixo dela, a tela de cada
+// Uma janela com a barra do Parallello (login, tela inicial e abas) e, abaixo dela, a tela de cada
 // sistema aberto, cada uma num WebContentsView próprio (isolada, com o seu preload).
 // O processo principal de cada sistema roda aqui dentro, com IPC só dele (ver roteador.js).
+//
+// Login único: quem entra no Parallello é o mesmo usuário em todos os sistemas (sessao.js).
+// Conexão única: o cadastro das conexões com o banco é um só (src/compartilhado/conexoes.ts).
 import { app, BrowserWindow, WebContentsView, Menu, ipcMain, shell } from 'electron';
+import fs from 'fs';
 import path from 'path';
 import { CATALOGO } from '../modulos/catalogo.js';
 import { FABRICAS } from './modulos.js';
-import { ipcDoModulo, vincularTela, desvincularTela } from './roteador.js';
+import { ipcDoModulo, vincularTela, desvincularTela, moduloDaTela } from './roteador.js';
 import { migrarSePreciso } from './migracao.js';
 import { criarAtualizacao } from './atualizacao.js';
+import { criarSessao } from './sessao.js';
+import { ehSenhaMaster } from '../compartilhado/master.js';
+import * as conexoesCentrais from '../compartilhado/conexoes';
+import * as nuvem from './nuvem.js';
+import * as bancoSql from '../modulos/gerar-pre-venda/main/db';
 
 const ALTURA_BARRA = 48;
 const DEV_URL = process.env.PARALLELLO_DEV_URL || '';
 const PASTA_OUT = path.join(__dirname, '..'); // out/
 const PASTA_RENDERER = path.join(PASTA_OUT, 'renderer');
 const PASTA_PRELOAD = path.join(PASTA_OUT, 'preload');
+
+// Datas no formato brasileiro (DD/MM/AAAA) nos campos de data de todos os sistemas.
+app.commandLine.appendSwitch('lang', 'pt-BR');
 
 // Pasta fixa e sem acento para os dados (todos os sistemas ficam em %APPDATA%\Parallello\modulos\<id>).
 app.setPath('userData', process.env.PARALLELLO_USERDATA || path.join(app.getPath('appData'), 'Parallello'));
@@ -26,7 +38,11 @@ const ativos = new Map(); // id -> { instancia, erro } (processo principal do m�
 const abas = new Map(); // id -> WebContentsView (tela aberta)
 let ordemAbas = []; // ids na ordem em que foram abertos
 let atual = null; // id do sistema em primeiro plano; null = tela inicial
+let cobrindo = false; // a tela do Parallello mostra uma janela por cima (login, aviso, senha master)
 let atualizacao = null;
+let sessao = null;
+
+const infoAba = (id) => CATALOGO.find((x) => x.id === id);
 
 // ---------------- estado para a tela do Parallello ----------------
 function estado() {
@@ -36,11 +52,47 @@ function estado() {
     abas: ordemAbas.slice(),
     erros: Object.fromEntries([...ativos].filter(([, a]) => a.erro).map(([id, a]) => [id, a.erro])),
     atualizacao: atualizacao ? atualizacao.estado() : { tipo: 'parado' },
+    sessao: sessao ? sessao.publico() : { logado: false },
   };
 }
 function avisarMudanca() {
   if (janela && !janela.isDestroyed()) janela.webContents.send('parallello:estado', estado());
 }
+function avisarTelas(canal, dados) {
+  for (const view of abas.values()) if (!view.webContents.isDestroyed()) view.webContents.send(canal, dados);
+}
+
+// ---------------- conexão única ----------------
+function prepararConexoes() {
+  const pasta = app.getPath('userData');
+  conexoesCentrais.definirPasta(pasta);
+  // As conexões eram do Gerar Pré-Venda: a primeira vez, traz o arquivo dele (com as senhas deste PC).
+  const destino = path.join(pasta, 'conexoes.json');
+  const doGerar = path.join(pastaModulos(), 'gerar-pre-venda', 'conexoes.json');
+  if (!fs.existsSync(destino)) {
+    try {
+      migrarSePreciso('gerar-pre-venda', path.join(pastaModulos(), 'gerar-pre-venda'), app.getPath('appData'));
+      if (fs.existsSync(doGerar)) fs.copyFileSync(doGerar, destino);
+    } catch (e) {
+      console.error('[parallello] conexões do Gerar Pré-Venda:', e);
+    }
+  }
+}
+
+/** Conexões que os sistemas enxergam: as ativas da empresa atual. */
+const conexoesParaModulos = {
+  async listar() {
+    const emp = sessao?.empresaAtual();
+    const todas = await conexoesCentrais.listarPerfis();
+    return todas.filter((p) => p.ativo !== false && (emp ? p.empresaId === emp.id : true));
+  },
+  async senha(id) {
+    return (await conexoesCentrais.obterPerfil(id)).senha;
+  },
+  async obter(id) {
+    return conexoesCentrais.obterPerfil(id);
+  },
+};
 
 // ---------------- processo principal de cada sistema ----------------
 function iniciarModulo(id) {
@@ -63,6 +115,8 @@ function iniciarModulo(id) {
         if (wc && !wc.isDestroyed()) wc.send(canal, ...args);
       },
       atualizacao,
+      usuario: () => sessao.usuarioParaModulo(),
+      conexoes: conexoesParaModulos,
     }) || {};
   } catch (erro) {
     console.error(`[parallello] ${id} não iniciou:`, erro);
@@ -73,23 +127,19 @@ function iniciarModulo(id) {
 }
 
 // ---------------- telas (abas) ----------------
-function urlDaPagina(m) {
-  if (DEV_URL && !m.estatico) return `${DEV_URL}/${m.pagina}`;
-  return null;
-}
-
-function criarAba(m) {
+function criarAba(info) {
+  const dono = info.modulo ?? info.id;
   const view = new WebContentsView({
     webPreferences: {
-      preload: path.join(PASTA_PRELOAD, `${m.id}.js`),
+      preload: path.join(PASTA_PRELOAD, `${dono}.js`),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
-  view.setBackgroundColor(m.fundo);
+  view.setBackgroundColor(info.fundo);
   const wc = view.webContents;
-  vincularTela(wc.id, m.id);
+  vincularTela(wc.id, dono);
   wc.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
@@ -110,9 +160,9 @@ function criarAba(m) {
       alternarAba(input.shift ? -1 : 1);
     }
   });
-  const url = urlDaPagina(m);
-  if (url) void wc.loadURL(url);
-  else void wc.loadFile(path.join(PASTA_RENDERER, m.pagina));
+  const query = info.query ? '?' + new URLSearchParams(info.query) : '';
+  if (DEV_URL && !info.estatico) void wc.loadURL(`${DEV_URL}/${info.pagina}${query}`);
+  else void wc.loadFile(path.join(PASTA_RENDERER, info.pagina), info.query ? { query: info.query } : undefined);
   janela.contentView.addChildView(view);
   return view;
 }
@@ -122,34 +172,47 @@ function posicionar() {
   const [largura, altura] = janela.getContentSize();
   for (const [id, view] of abas) {
     view.setBounds({ x: 0, y: ALTURA_BARRA, width: largura, height: Math.max(0, altura - ALTURA_BARRA) });
-    view.setVisible(id === atual);
+    view.setVisible(id === atual && !cobrindo);
   }
 }
 
 function mostrar(id) {
-  atual = id;
+  atual = id && abas.has(id) ? id : null;
   posicionar();
-  if (id) abas.get(id)?.webContents.focus();
+  if (atual && !cobrindo) abas.get(atual)?.webContents.focus();
   else janela.webContents.focus();
-  const m = CATALOGO.find((x) => x.id === id);
+  const m = infoAba(atual);
   janela.setTitle(m ? `${m.nome} — Parallello` : 'Parallello');
   avisarMudanca();
 }
 
+function abrirAba(info) {
+  if (!abas.has(info.id)) {
+    abas.set(info.id, criarAba(info));
+    ordemAbas.push(info.id);
+  }
+  mostrar(info.id);
+}
+
+/** Abre um sistema. Sem login ou sem o módulo liberado, devolve o motivo (a tela mostra a mensagem). */
 function abrir(id) {
   const m = CATALOGO.find((x) => x.id === id);
   if (!m) throw new Error('Sistema desconhecido: ' + id);
+  if (!sessao.logado()) return { ok: false, motivo: 'login' };
+  if (!sessao.podeAbrir(id)) {
+    return {
+      ok: false,
+      motivo: 'sem-acesso',
+      mensagem: `Você não tem acesso ao módulo ${m.nome}. Peça ao administrador para liberar em "Liberar módulos".`,
+    };
+  }
   const reg = iniciarModulo(id);
   if (reg.erro) {
     avisarMudanca();
-    return false;
+    return { ok: false, motivo: 'erro', mensagem: reg.erro };
   }
-  if (!abas.has(id)) {
-    abas.set(id, criarAba(m));
-    ordemAbas.push(id);
-  }
-  mostrar(id);
-  return true;
+  abrirAba(m);
+  return { ok: true };
 }
 
 function fechar(id) {
@@ -168,6 +231,11 @@ function fechar(id) {
   }
   if (atual === id) mostrar(ordemAbas[Math.min(i, ordemAbas.length - 1)] ?? null);
   else avisarMudanca();
+}
+
+function fecharTodas() {
+  for (const id of [...ordemAbas]) fechar(id);
+  mostrar(null);
 }
 
 function alternarAba(passo) {
@@ -226,14 +294,155 @@ function daJanela(fn) {
     return fn(...args);
   };
 }
-ipcMain.handle('parallello:estado', daJanela(() => estado()));
-ipcMain.handle('parallello:abrir', daJanela((id) => abrir(id)));
-ipcMain.handle('parallello:mostrar', daJanela((id) => (id && abas.has(id) ? mostrar(id) : mostrar(null))));
-ipcMain.handle('parallello:fechar', daJanela((id) => fechar(id)));
-ipcMain.handle('parallello:atualizacao:verificar', daJanela(() => atualizacao.verificar()));
-ipcMain.handle('parallello:atualizacao:baixar', daJanela(() => atualizacao.baixar()));
-ipcMain.handle('parallello:atualizacao:instalar', daJanela(() => atualizacao.instalar()));
-ipcMain.handle('parallello:abrirPastaDados', daJanela(() => shell.openPath(pastaModulos())));
+/** Canal que as telas dos sistemas também podem usar (Gerar Pré-Venda e o painel de configuração). */
+function daTela(fn) {
+  return (evento, ...args) => {
+    const ehJanela = janela && evento.sender === janela.webContents;
+    const modulo = moduloDaTela(evento.sender.id);
+    if (!ehJanela && !modulo) throw new Error('Canal do Parallello.');
+    return fn(...args);
+  };
+}
+const canal = (nome, fn) => ipcMain.handle('parallello:' + nome, daJanela(fn));
+
+canal('estado', () => estado());
+canal('abrir', (id) => abrir(id));
+canal('mostrar', (id) => mostrar(id));
+canal('fechar', (id) => fechar(id));
+canal('cobrir', (sim) => {
+  cobrindo = !!sim;
+  posicionar();
+  if (!cobrindo && atual) abas.get(atual)?.webContents.focus();
+});
+canal('atualizacao:verificar', () => atualizacao.verificar());
+canal('atualizacao:baixar', () => atualizacao.baixar());
+canal('atualizacao:instalar', () => atualizacao.instalar());
+canal('abrirPastaDados', () => shell.openPath(app.getPath('userData')));
+
+// login e usuários
+canal('entrar', (usuario, senha) => sessao.entrar(usuario, senha));
+canal('sair', () => sessao.sair());
+canal('atualizarSessao', () => sessao.atualizar());
+canal('meusModulos', (modulos) => sessao.definirMeusModulos(modulos));
+
+// ---------------- configuração do Parallello (Ctrl+Shift+B + senha master) ----------------
+canal('config:abrir', (senha) => sessao.liberarConfig(senha));
+canal('config:fechar', () => sessao.fecharConfig());
+
+// usuários e permissões
+canal('config:usuarios', () => sessao.listarUsuarios());
+canal('config:usuarios:modulos', (id, modulos) => sessao.definirModulos(id, modulos));
+canal('config:usuarios:criar', (dados) => sessao.criarUsuario(dados));
+canal('config:usuarios:alterar', (id, dados) => sessao.alterarUsuario(id, dados));
+canal('config:usuarios:senha', (id, senha) => sessao.trocarSenha(id, senha));
+
+// empresas (super administrador)
+canal('config:empresas', () => sessao.naConfig(() => nuvem.resumoEmpresas(), { soSuper: true }));
+canal('config:empresas:criar', (d) => sessao.naConfig(async () => {
+  const id = await nuvem.criarEmpresa(d);
+  if (d.retencao_meses) await nuvem.alterarEmpresa(id, { retencao_meses: d.retencao_meses });
+  await sessao.carregarEmpresas();
+  return id;
+}, { soSuper: true }));
+canal('config:empresas:alterar', (id, d) => sessao.naConfig(async () => {
+  await nuvem.alterarEmpresa(id, d);
+  await sessao.carregarEmpresas();
+}, { soSuper: true }));
+canal('config:empresas:modulos', (id, modulos) => sessao.definirModulosEmpresa(id, modulos));
+
+// cobrança da licença (super administrador)
+const cobranca = (fn) => (...a) => sessao.naConfig(() => fn(...a), { soSuper: true });
+canal('config:cobranca:config', cobranca(() => nuvem.configCobranca()));
+canal('config:cobranca:salvarConfig', cobranca((d) => nuvem.salvarConfigCobranca(d)));
+canal('config:cobranca:empresas', cobranca(() => nuvem.empresasCobranca()));
+canal('config:cobranca:licenca', cobranca((id, d) => nuvem.alterarLicenca(id, d)));
+canal('config:cobranca:pagamentos', cobranca((id) => nuvem.pagamentos(id)));
+canal('config:cobranca:pagar', cobranca((d) => nuvem.registrarPagamento(d)));
+canal('config:cobranca:estornar', cobranca((id) => nuvem.estornarPagamento(id)));
+
+// eventos do sistema
+canal('config:eventos', (filtro) => sessao.naConfig(() => nuvem.eventos({ ...filtro, empresaId: filtro?.todasEmpresas ? null : sessao.empresaAtual()?.id })));
+
+// conexão única com o banco
+const paraNuvem = ({ temSenha, atualizadoEm, ...dados }) => dados; // eslint-disable-line no-unused-vars
+canal('config:conexoes', async () => {
+  sessao.exigirConfig();
+  await sessao.sincronizarConexoes();
+  const emp = sessao.empresaAtual();
+  const todas = await conexoesCentrais.listarPerfis();
+  return {
+    empresa: emp,
+    nuvem: sessao.temNuvem(),
+    perfis: todas.filter((p) => (emp ? p.empresaId === emp.id : !p.empresaId)),
+    locais: emp ? todas.filter((p) => !p.empresaId) : [],
+    nativo: bancoSql.nativoDisponivel(),
+  };
+});
+canal('config:conexoes:salvar', async (perfil, senha) => {
+  sessao.exigirConfig();
+  const emp = sessao.empresaAtual();
+  if (emp && !sessao.temNuvem()) throw new Error('Sem internet: o cadastro da conexão é da empresa e precisa da nuvem. Sem internet dá para salvar só a senha deste computador.');
+  const novo = !perfil.id;
+  const salvo = await conexoesCentrais.salvarPerfil({ ...perfil, empresaId: emp ? emp.id : '' }, senha || undefined);
+  if (emp) {
+    try {
+      await nuvem.salvarConexao(emp.id, paraNuvem(salvo));
+    } catch (e) {
+      if (novo) await conexoesCentrais.excluirPerfil(salvo.id).catch(() => {});
+      throw new Error(`A conexão não foi salva na empresa: ${e.message}`);
+    }
+  }
+  await bancoSql.fecharPool(salvo.id);
+  return salvo;
+});
+canal('config:conexoes:senha', async (id, senha) => {
+  sessao.exigirConfig();
+  const r = await conexoesCentrais.salvarSenha(id, senha);
+  await bancoSql.fecharPool(id);
+  return r;
+});
+canal('config:conexoes:excluir', async (id) => {
+  sessao.exigirConfig();
+  const emp = sessao.empresaAtual();
+  const p = (await conexoesCentrais.listarPerfis()).find((x) => x.id === id);
+  if (p?.empresaId) {
+    if (!sessao.temNuvem()) throw new Error('Sem internet: não dá para excluir a conexão da empresa agora.');
+    await nuvem.excluirConexao(id);
+  }
+  await conexoesCentrais.excluirPerfil(id);
+  await bancoSql.fecharPool(id);
+  return emp;
+});
+canal('config:conexoes:enviar', async (id) => {
+  sessao.exigirConfig();
+  const emp = sessao.empresaAtual();
+  if (!emp || !sessao.temNuvem()) throw new Error('Escolha a empresa (com internet) para enviar a conexão.');
+  const p = (await conexoesCentrais.listarPerfis()).find((x) => x.id === id);
+  if (!p) throw new Error('Conexão não encontrada.');
+  const salvo = await conexoesCentrais.salvarPerfil({ ...p, empresaId: emp.id });
+  await nuvem.salvarConexao(emp.id, paraNuvem(salvo));
+  return salvo;
+});
+canal('config:conexoes:testar', async (perfil, senha) => {
+  sessao.exigirConfig();
+  return bancoSql.testar(perfil, await conexoesCentrais.senhaParaTeste(perfil, senha));
+});
+
+// usados também pelas telas dos sistemas
+ipcMain.handle('parallello:sessao', daTela(() => ({ ...sessao.publico(), usuario: sessao.usuarioParaModulo() })));
+ipcMain.handle('parallello:token', daTela(() => sessao.token()));
+ipcMain.handle('parallello:escolherEmpresa', daTela((id) => sessao.escolherEmpresa(id)));
+// Ctrl+Shift+B dentro de um sistema que não tem configuração própria (Gerar Pré-Venda): configuração do Parallello
+ipcMain.handle(
+  'parallello:pedirPainel',
+  daTela(() => {
+    if (janela && !janela.isDestroyed()) {
+      mostrar(null);
+      janela.webContents.send('parallello:pedirMaster');
+    }
+    return true;
+  })
+);
 
 // ---------------- ciclo de vida ----------------
 let encerrando = false;
@@ -261,17 +470,30 @@ if (!app.requestSingleInstanceLock()) {
     // Alguns servidores (Supabase) recusam acentos no user agent: só ASCII.
     app.userAgentFallback = app.userAgentFallback.normalize('NFD').replace(/[^\x20-\x7E]/g, '');
     Menu.setApplicationMenu(null);
+    prepararConexoes();
+    sessao = criarSessao({
+      pasta: app.getPath('userData'),
+      catalogo: CATALOGO,
+      aoMudar: (pub) => {
+        if (!pub.logado) fecharTodas(); // saiu: fecha todos os sistemas
+        avisarMudanca();
+        avisarTelas('parallello:sessao-mudou', { ...pub, usuario: sessao.usuarioParaModulo() });
+      },
+    });
+    sessao.aoSincronizar((empresaId, lista) => conexoesCentrais.sincronizar(empresaId, lista));
     atualizacao = criarAtualizacao(() => avisarMudanca());
     criarJanela();
-    // Atalho de linha de comando: Parallello.exe --abrir=gerar-pre-venda
-    const pedido = process.argv.find((a) => a.startsWith('--abrir='));
-    if (pedido) janela.webContents.once('did-finish-load', () => abrir(pedido.slice(8)));
+    // Releitura periódica: módulos liberados/bloqueios mudam na nuvem com o programa aberto
+    setInterval(() => {
+      if (sessao.logado()) sessao.atualizar().catch((e) => janela?.webContents.send('parallello:aviso', e.message));
+    }, 5 * 60 * 1000);
   });
 
   app.on('before-quit', async (e) => {
     if (encerrando) return;
     e.preventDefault();
     encerrando = true;
+    await sessao?.sair(false).catch(() => {});
     await encerrarModulos();
     app.quit();
   });

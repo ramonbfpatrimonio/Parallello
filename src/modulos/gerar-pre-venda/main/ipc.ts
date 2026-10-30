@@ -1,7 +1,7 @@
 import { BrowserWindow, dialog, type IpcMainInvokeEvent } from 'electron'
 import { readFile, writeFile } from 'fs/promises'
 import type { DadosConexaoNuvem, PedidoEnvio, PerfilConexao } from '@shared/tipos'
-import * as conexoes from './conexoes'
+import * as conexoes from '../../../compartilhado/conexoes'
 import * as db from './db'
 import * as erp from './erp'
 import { lerPdf } from './pdf'

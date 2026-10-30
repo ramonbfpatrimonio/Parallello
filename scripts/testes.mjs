@@ -11,8 +11,12 @@ const etapas = [
   ['Acompanhamento de Vendas', 'node', ['src/modulos/acompanhamento/test/run-tests.cjs']],
   ['Acompanhamento de Vendas (módulo)', 'node', ['src/modulos/acompanhamento/test/main-smoke.cjs']],
   ['Pesquisa de Relatórios', 'node', ['--test', ...readdirSync(resolve(raiz, pq)).filter((f) => f.endsWith('.test.js')).map((f) => `${pq}/${f}`)]],
-  ['Parallello', 'node', ['--test', 'tests/parallello.test.mjs']]
+  ['Indicador Logístico', 'node', ['src/modulos/indicador-logistico/test/engine.test.js']],
+  // roda o arquivo direto (sem --test): no Windows, se o processo cair, o erro aparece na tela em vez de sumir
+  ['Parallello', 'node', ['tests/parallello.test.mjs']]
 ]
+// Regras do banco da nuvem (RLS): só com um PostgreSQL disponível (PGHOST=... npm test)
+if (process.env.PGHOST && process.platform !== 'win32') etapas.push(['Nuvem (regras do banco)', 'sh', ['tests/sql/rodar.sh']])
 let falhou = false
 for (const [nome, cmd, args] of etapas) {
   console.log(`\n=== ${nome} ===`)

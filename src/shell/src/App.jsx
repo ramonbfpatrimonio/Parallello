@@ -1,7 +1,13 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { CATALOGO } from '../../modulos/catalogo.js'
 import { ICONES } from './icones.js'
 import marca from './assets/marca.svg'
+import { Login } from './Login.jsx'
+import { LiberarModulos } from './LiberarModulos.jsx'
+import { Configuracao } from './config/Configuracao.jsx'
+import { Preloader } from './Preloader.jsx'
+import { Modal } from './Modal.jsx'
+import { mensagem, NOME_PAPEL } from './util.js'
 
 const api = () => window.parallello
 
@@ -17,47 +23,176 @@ function dataPorExtenso(agora = new Date()) {
   return t.charAt(0).toUpperCase() + t.slice(1)
 }
 
+const primeiroNome = (n) => String(n || '').trim().split(/\s+/)[0]
+
 export function App() {
   const [estado, setEstado] = useState(null)
+  const [abertura, setAbertura] = useState(true)
+  const [pagina, setPagina] = useState('inicio') // 'inicio' | 'modulos' | 'config' (quando nenhum sistema está à frente)
+  const [semAcesso, setSemAcesso] = useState(null)
+  const [pedirMaster, setPedirMaster] = useState(false)
+  const [avisos, setAvisos] = useState([])
+  const seq = useRef(0)
+
+  const avisar = useCallback((texto, tipo = 'ok') => {
+    const id = ++seq.current
+    setAvisos((l) => [...l, { id, texto, tipo }])
+    setTimeout(() => setAvisos((l) => l.filter((a) => a.id !== id)), tipo === 'erro' ? 8000 : 3500)
+  }, [])
 
   useEffect(() => {
     api().estado().then(setEstado)
-    return api().aoMudar(setEstado)
-  }, [])
+    const tirar = [
+      api().aoMudar(setEstado),
+      api().aoPedirMaster(() => setPedirMaster(true)),
+      api().aoAviso((t) => avisar(t, 'erro')),
+    ]
+    return () => tirar.forEach((f) => f())
+  }, [avisar])
 
+  const logado = !!estado?.sessao?.logado
+  const configLiberada = !!estado?.sessao?.configLiberada
+  const terminarAbertura = useCallback(() => setAbertura(false), [])
+
+  // Ctrl+Shift+B na tela do Parallello: configuração (senha master)
+  useEffect(() => {
+    const tecla = (e) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'B' || e.key === 'b' || e.code === 'KeyB')) {
+        e.preventDefault()
+        if (!logado) return
+        if (configLiberada) {
+          setPagina('config')
+          void api().mostrar(null)
+        } else setPedirMaster(true)
+      }
+    }
+    window.addEventListener('keydown', tecla)
+    return () => window.removeEventListener('keydown', tecla)
+  }, [logado, configLiberada])
+
+  // configuração liberada (senha master ou entrou como administrador): abre junto; trancou: volta ao início
+  useEffect(() => {
+    if (configLiberada) {
+      setPagina('config')
+      void api().mostrar(null)
+    } else setPagina((p) => (p === 'config' ? 'inicio' : p))
+  }, [configLiberada])
+
+  useEffect(() => {
+    if (!logado) setPagina('inicio')
+  }, [logado])
+
+  // pedido de configuração vindo de um sistema (Ctrl+Shift+B dentro do Gerar): já liberada, só mostra
+  useEffect(() => {
+    if (pedirMaster && configLiberada) {
+      setPedirMaster(false)
+      setPagina('config')
+    }
+  }, [pedirMaster, configLiberada])
+
+  if (abertura) return <Preloader aoTerminar={terminarAbertura} />
   if (!estado) return null
-  const abertos = new Set(estado.abas)
+  if (!logado) return <Login ultimoUsuario={estado.sessao?.ultimoUsuario} versao={estado.versao} />
+
+  const sessao = estado.sessao
+  const abrir = async (id) => {
+    const r = await api().abrir(id)
+    if (r && !r.ok && r.mensagem) setSemAcesso(r.mensagem)
+  }
+  const irPara = (p) => {
+    setPagina(p)
+    void api().mostrar(null)
+  }
 
   return (
     <div className="app">
-      <Barra estado={estado} />
-      {/* A tela inicial fica sempre por baixo; quando um sistema está à frente, a tela dele a cobre. */}
-      <Inicio estado={estado} abertos={abertos} />
+      <Barra estado={estado} pagina={pagina} irPara={irPara} />
+      {pagina === 'config' && configLiberada ? (
+        <Configuracao sessao={sessao} avisar={avisar} />
+      ) : pagina === 'modulos' ? (
+        <LiberarModulos sessao={sessao} avisar={avisar} semAcesso={setSemAcesso} />
+      ) : (
+        <Inicio estado={estado} abrir={abrir} irPara={irPara} />
+      )}
+
+      {semAcesso && (
+        <Modal titulo="Sem acesso" aoFechar={() => setSemAcesso(null)} rodape={<button className="botao primario" onClick={() => setSemAcesso(null)} autoFocus>Entendi</button>}>
+          <p>{semAcesso}</p>
+        </Modal>
+      )}
+      {pedirMaster && <SenhaMaster aoFechar={() => setPedirMaster(false)} />}
+
+      <div className="avisos" role="status" aria-live="polite">
+        {avisos.map((a) => (
+          <div key={a.id} className={`aviso ${a.tipo}`}>{a.texto}</div>
+        ))}
+      </div>
     </div>
   )
 }
 
-function Barra({ estado }) {
-  const noInicio = estado.atual === null
+function SenhaMaster({ aoFechar }) {
+  const [senha, setSenha] = useState('')
+  const [erro, setErro] = useState('')
+  async function entrar(e) {
+    e.preventDefault()
+    try {
+      await api().config.abrir(senha)
+      aoFechar()
+    } catch (err) {
+      setErro(mensagem(err))
+      setSenha('')
+    }
+  }
+  return (
+    <Modal
+      titulo="Configuração do Parallello"
+      aoFechar={aoFechar}
+      rodape={
+        <>
+          <button className="botao" onClick={aoFechar}>Cancelar</button>
+          <button className="botao primario" form="f-master">Abrir</button>
+        </>
+      }
+    >
+      <form id="f-master" onSubmit={entrar} className="formulario">
+        <p>Conexão com o banco, usuários, empresas, cobrança e eventos. Digite a senha master.</p>
+        <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoFocus aria-label="Senha master" />
+        {erro && <p className="erro">{erro}</p>}
+      </form>
+    </Modal>
+  )
+}
+
+function Barra({ estado, pagina, irPara }) {
+  const sessao = estado.sessao
+  const noInicio = estado.atual === null && pagina === 'inicio'
+  const naLiberacao = estado.atual === null && pagina === 'modulos'
+  const naConfig = estado.atual === null && pagina === 'config'
   return (
     <header className="barra">
-      <button
-        className={'barra-marca' + (noInicio ? ' ativa' : '')}
-        onClick={() => api().mostrar(null)}
-        title="Tela inicial (Ctrl+Tab alterna entre as abas)"
-      >
+      <button className={'barra-marca' + (noInicio ? ' ativa' : '')} onClick={() => irPara('inicio')} title="Tela inicial (Ctrl+Tab alterna entre as abas)">
         <img src={marca} alt="" className="barra-marca-icone" />
         <span className="barra-marca-nome">Parallello</span>
       </button>
 
+      <button className={'barra-item' + (naLiberacao ? ' ativa' : '')} onClick={() => irPara('modulos')}>
+        Liberar módulos
+      </button>
+      {sessao.configLiberada && (
+        <button className={'barra-item' + (naConfig ? ' ativa' : '')} onClick={() => irPara('config')}>
+          Configuração
+        </button>
+      )}
+
       <nav className="abas" aria-label="Sistemas abertos">
         {estado.abas.map((id) => {
-          const m = CATALOGO.find((x) => x.id === id)
+          const m = CATALOGO.find((x) => x.id === id) ?? { id, nome: 'Configuração', cor: '#f0b43c' }
           const ativa = estado.atual === id
           return (
             <div key={id} className={'aba' + (ativa ? ' ativa' : '')} style={{ '--cor': m.cor }}>
               <button className="aba-abrir" onClick={() => api().mostrar(id)} aria-current={ativa ? 'page' : undefined}>
-                <img src={ICONES[id]} alt="" />
+                {ICONES[id] ? <img src={ICONES[id]} alt="" /> : <span className="aba-cadeado" aria-hidden="true" />}
                 <span>{m.nome}</span>
               </button>
               <button className="aba-fechar" onClick={() => api().fechar(id)} title={`Fechar ${m.nome}`} aria-label={`Fechar ${m.nome}`}>
@@ -68,8 +203,80 @@ function Barra({ estado }) {
         })}
       </nav>
 
+      <Situacao sessao={sessao} />
       <Atualizacao a={estado.atualizacao} />
+      <Usuario sessao={sessao} />
     </header>
+  )
+}
+
+function Situacao({ sessao }) {
+  const l = sessao.licenca
+  if (sessao.modo === 'offline') return <span className="pilula" title="Entrou com o acesso guardado neste computador">Sem internet</span>
+  if (sessao.modo === 'master') return <span className="pilula" title="Senha master sem conexão com a nuvem">Master, sem nuvem</span>
+  if (l?.estado === 'vencendo') return <span className="pilula alerta">Licença vence em {l.dias} dia{l.dias === 1 ? '' : 's'}</span>
+  if (l?.estado === 'atrasada') return <span className="pilula alerta">Licença vencida: regularize para não bloquear</span>
+  return null
+}
+
+function Usuario({ sessao }) {
+  const [aberto, setAberto] = useState(false)
+  const caixa = useRef(null)
+  useEffect(() => {
+    if (!aberto) return
+    api().cobrir(true)
+    const fora = (e) => caixa.current && !caixa.current.contains(e.target) && setAberto(false)
+    window.addEventListener('mousedown', fora)
+    return () => {
+      window.removeEventListener('mousedown', fora)
+      api().cobrir(false)
+    }
+  }, [aberto])
+  const p = sessao.perfil
+  const papel = sessao.modo?.startsWith('master') ? 'master' : p?.papel
+  return (
+    <div className="usuario" ref={caixa}>
+      <button className="usuario-botao" onClick={() => setAberto((a) => !a)} aria-expanded={aberto}>
+        <span className="usuario-avatar" aria-hidden="true">{primeiroNome(p?.nome).charAt(0).toUpperCase()}</span>
+        <span className="usuario-textos">
+          <b>{primeiroNome(p?.nome)}</b>
+          <small>{sessao.empresaAtual?.nome ?? NOME_PAPEL[papel]}</small>
+        </span>
+      </button>
+      {aberto && (
+        <div className="usuario-menu" role="menu">
+          <div className="usuario-menu-cabeca">
+            <b>{p?.nome}</b>
+            <small>{p?.usuario} · {NOME_PAPEL[papel] ?? papel}</small>
+          </div>
+          {sessao.ehSuper && sessao.empresas.length > 0 && (
+            <label className="campo">
+              <span className="campo-rotulo">Empresa</span>
+              <select
+                value={sessao.empresaAtual?.id ?? ''}
+                onChange={async (e) => {
+                  await api().escolherEmpresa(e.target.value)
+                  setAberto(false)
+                }}
+              >
+                {sessao.empresas.map((e) => (
+                  <option key={e.id} value={e.id}>{e.nome}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button className="usuario-menu-item" role="menuitem" onClick={() => api().atualizarSessao().then(() => setAberto(false))}>
+            Atualizar permissões
+          </button>
+          <button className="usuario-menu-item" role="menuitem" onClick={() => api().abrirPastaDados()}>
+            Abrir a pasta de dados
+          </button>
+          <button className="usuario-menu-item sair" role="menuitem" onClick={() => api().sair()}>
+            Sair do Parallello
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -99,49 +306,59 @@ function Atualizacao({ a }) {
   return null
 }
 
-function Inicio({ estado, abertos }) {
+function Inicio({ estado, abrir, irPara }) {
   const agora = new Date()
+  const sessao = estado.sessao
+  const liberados = new Set(sessao.modulos)
+  const abertos = new Set(estado.abas)
+  const visiveis = CATALOGO.filter((m) => liberados.has(m.id))
   return (
     <main className="inicio">
       <section className="cabeca">
-        <h1>{saudacao(agora)}.</h1>
+        <h1>{saudacao(agora)}, {primeiroNome(sessao.perfil?.nome)}.</h1>
         <p className="cabeca-data">{dataPorExtenso(agora)}</p>
-        <p className="cabeca-texto">Escolha um sistema. Os que você abrir ficam nas abas lá em cima, cada um do jeito que você deixou.</p>
+        <p className="cabeca-texto">
+          {visiveis.length === 0
+            ? 'Nenhum sistema liberado ainda. Abra "Liberar módulos" e marque os sistemas que você usa.'
+            : 'Escolha um sistema. Os que você abrir ficam nas abas lá em cima, cada um do jeito que você deixou.'}
+        </p>
+        {visiveis.length === 0 && (
+          <button className="botao primario" onClick={() => irPara('modulos')}>Liberar módulos</button>
+        )}
       </section>
 
-      <ul className="cards">
-        {CATALOGO.map((m) => {
-          const aberto = abertos.has(m.id)
-          const erro = estado.erros[m.id]
-          return (
-            <li key={m.id}>
-              <button className="card" style={{ '--cor': m.cor }} onClick={() => api().abrir(m.id)} disabled={!!erro}>
-                <span className="card-logo">
-                  <img src={ICONES[m.id]} alt="" />
-                </span>
-                {aberto && <span className="card-aberto">Aberto</span>}
-                <span className="card-nome">{m.nome}</span>
-                <span className="card-descricao">{m.descricao}</span>
-                <span className="card-rodape">
-                  <span className="card-faixa" aria-hidden="true" />
-                  {erro ? 'Não abriu' : aberto ? 'Voltar para a aba' : 'Abrir'}
-                </span>
-              </button>
-              {erro && (
-                <p className="card-erro" role="alert">
-                  {erro}
-                </p>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+      {visiveis.length > 0 && (
+        <ul className="cards">
+          {visiveis.map((m) => {
+            const aberto = abertos.has(m.id)
+            const erro = estado.erros[m.id]
+            return (
+              <li key={m.id}>
+                <button className="card" style={{ '--cor': m.cor }} onClick={() => abrir(m.id)} disabled={!!erro}>
+                  <span className="card-logo">
+                    <img src={ICONES[m.id]} alt="" />
+                  </span>
+                  {aberto && <span className="card-aberto">Aberto</span>}
+                  <span className="card-nome">{m.nome}</span>
+                  <span className="card-descricao">{m.descricao}</span>
+                  <span className="card-rodape">
+                    <span className="card-faixa" aria-hidden="true" />
+                    {erro ? 'Não abriu' : aberto ? 'Voltar para a aba' : 'Abrir'}
+                  </span>
+                </button>
+                {erro && (
+                  <p className="card-erro" role="alert">
+                    {erro}
+                  </p>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
 
       <footer className="rodape">
         <span>Parallello {estado.versao}</span>
-        <button className="link" onClick={() => api().abrirPastaDados()}>
-          Abrir a pasta de dados
-        </button>
       </footer>
     </main>
   )

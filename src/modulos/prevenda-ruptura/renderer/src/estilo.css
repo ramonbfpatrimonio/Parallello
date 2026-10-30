@@ -268,3 +268,4 @@ pre.script { background: #f3f5f7; border: 1px solid var(--linha); padding: 10px;
 .carregando { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: gira .7s linear infinite; }
 @keyframes gira { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .carregando { animation-duration: 2s; } }
+.abrindo { height: 100vh; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--tinta-3, #667); }

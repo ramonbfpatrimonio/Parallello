@@ -4,6 +4,7 @@ import { ehErroDeRede, nuvem, type Empresa, type NovoEvento, type Nuvem, type Pe
 import type { AparenciaLocal } from '../../preload/api'
 import { dataBR, hojeLocal, maisRecente, situacaoLicenca, type Licenca, type SituacaoLicenca } from '@shared/licenca'
 import { dataMaster, ehSenhaMaster } from '@shared/licenca'
+import type { SessaoParallello } from '../../preload/api'
 
 // ----------------------------------------------------------------- licença (cobrança)
 export type EstadoDaLicenca = Licenca & SituacaoLicenca & { liberadoHoje?: boolean }
@@ -138,60 +139,47 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
   const [diaMaster, setDiaMaster] = useState('')
   const [bloqueioLicenca, setBloqueioLicenca] = useState<{ empresaId: string; empresaNome: string } | null>(null)
 
-  /** Bloqueios que valem online: usuário desativado ou empresa suspensa. */
-  const validar = useCallback(async (p: Perfil | null): Promise<Perfil | null> => {
-    if (!p) return null
-    let motivo = ''
-    if (!p.ativo) motivo = 'Seu usuário está desativado. Fale com o administrador.'
-    else if (p.papel !== 'super_admin' && !p.empresa_id) motivo = 'Seu usuário não está ligado a nenhuma empresa. Fale com o administrador.'
-    else if (p.papel !== 'super_admin' && !p.empresa_ativa) motivo = 'Acesso da empresa suspenso. Fale com o suporte.'
-    else {
-      motivo = motivoBloqueioLicenca(p)
-      if (motivo && p.empresa_id) setBloqueioLicenca({ empresaId: p.empresa_id, empresaNome: p.empresa_nome })
+  // Login único: quem está usando é quem entrou no Parallello.
+  const aplicarSessao = useCallback((s: SessaoParallello | null) => {
+    if (!s?.logado || !s.perfil) {
+      setPerfil(null)
+      setOffline(false)
+      setMaster(null)
+      setErro('Entre no Parallello para usar o Gerar Pré-Venda.')
+    } else if (s.modo === 'master') {
+      setPerfil({ ...PERFIL_MASTER, nome: 'Administrador (senha master)' })
+      setOffline(true)
+      setMaster('conta')
+      setDiaMaster(dataMaster())
+    } else {
+      setPerfil(s.perfil as Perfil)
+      setOffline(s.modo === 'offline')
+      if (s.modo === 'offline') setInternet(false)
+      setMaster(null)
+      setErro('')
     }
-    if (motivo) {
-      await window.api.offline.esquecer(p.email).catch(() => undefined)
-      await nuvem.sair()
-      setErro(motivo)
-      return null
+    // empresa: a mesma escolhida no Parallello
+    if (s?.empresaAtual) {
+      setEmpresaEscolhida(s.empresaAtual.id)
+      gravarLocal(CHAVE_EMPRESA, s.empresaAtual.id)
+      gravarLocal(CHAVE_EMPRESA + ':nome', s.empresaAtual.nome)
     }
-    await window.api.offline.atualizarPerfil(p).catch(() => undefined)
-    return p
+    setCarregando(false)
   }, [])
 
   const carregarPerfil = useCallback(async () => {
     try {
-      const p = await validar(await nuvem.meuPerfil())
-      setPerfil(p)
-      // empresa liberada pela senha master: trabalha sem nuvem (o banco da nuvem continua bloqueando)
-      const liberada = !!licencaDoPerfil(p)?.liberadoHoje
-      setOffline(liberada)
-      setMaster(liberada ? 'liberacao' : null)
+      aplicarSessao(await window.api.parallello.sessao())
     } catch (e) {
-      if (ehErroDeRede(e)) {
-        // Sessão salva + sem internet: segue com o perfil guardado (se ainda no prazo)
-        const id = await nuvem.usuarioAtualId().catch(() => null)
-        const guardado = id ? await window.api.offline.perfilPorId(id).catch(() => null) : null
-        if (guardado) {
-          setPerfil(guardado as Perfil)
-          setOffline(true)
-          setInternet(false)
-        } else setPerfil(null)
-      } else {
-        setErro((e as Error).message)
-        setPerfil(null)
-      }
-    } finally {
+      setErro((e as Error).message)
       setCarregando(false)
     }
-  }, [validar])
+  }, [aplicarSessao])
 
   useEffect(() => {
     void carregarPerfil()
-    return nuvem.aoMudarSessao((logado) => {
-      if (!logado) setPerfil((p) => (offline ? p : null))
-    })
-  }, [carregarPerfil]) // eslint-disable-line react-hooks/exhaustive-deps
+    return window.api.parallello.aoMudar((s) => aplicarSessao(s))
+  }, [carregarPerfil, aplicarSessao])
 
   // ---- internet: eventos do sistema + teste periódico
   useEffect(() => {
@@ -346,6 +334,7 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
 
   const escolherEmpresa = useCallback(
     (id: string) => {
+      void window.api.parallello.escolherEmpresa(id).catch(() => undefined)
       setEmpresaEscolhida(id)
       gravarLocal(CHAVE_EMPRESA, id)
       const e = empresas.find((x) => x.id === id)
@@ -432,72 +421,14 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
         setErro('')
         return true
       },
-      async entrar(email, senha) {
-        setErro('')
-        const ehMaster = await ehSenhaMaster(senha)
-        // Senha master com e-mail: acesso master na nuvem (só conta de super administrador)
-        let viaMaster = false
-        if (ehMaster && email.trim()) {
-          try {
-            await nuvem.entrarMaster(email, senha)
-            viaMaster = true
-          } catch (e) {
-            if (!ehErroDeRede(e)) throw e
-            // sem internet: cai no modo suporte deste computador (abaixo)
-          }
-        }
-        // Senha master sem e-mail (ou sem internet): modo suporte, super administrador deste computador, sem nuvem
-        if (ehMaster && !viaMaster) {
-          setBloqueioLicenca(null)
-          setPerfil({ ...PERFIL_MASTER })
-          setOffline(true)
-          setMaster('conta')
-          setDiaMaster(dataMaster())
-          await filaEvento('Entrou no programa com a senha master (suporte)')
-          return
-        }
-        if (!email.trim()) throw new Error('Informe o e-mail.')
-        try {
-          if (!viaMaster) await nuvem.entrar(email, senha)
-        } catch (e) {
-          if (!ehErroDeRede(e)) throw e
-          // Sem internet: tenta o acesso guardado neste computador
-          const p = (await window.api.offline.entrar(email, senha)) as Perfil
-          const bloqueio = motivoBloqueioLicenca(p)
-          if (bloqueio) {
-            if (p.empresa_id) setBloqueioLicenca({ empresaId: p.empresa_id, empresaNome: p.empresa_nome })
-            throw new Error(bloqueio)
-          }
-          setPerfil(p)
-          setMaster(licencaDoPerfil(p)?.liberadoHoje ? 'liberacao' : null)
-          setOffline(true)
-          setInternet(false)
-          await window.api.fila
-            .adicionar({ _tipo: 'evento', chave_local: crypto.randomUUID(), criado_em: new Date().toISOString(), acao: 'entrou', entidade: 'sessão', descricao: 'Entrou no programa sem internet (acesso offline)' })
-            .catch(() => undefined)
-          return
-        }
-        const p = await validar(await nuvem.meuPerfil())
-        if (p) {
-          // a senha master muda todo dia: não guarda para o acesso offline
-          if (!viaMaster) await window.api.offline.lembrar(email, senha, p).catch(() => undefined)
-          void nuvem.registrarEvento({ acao: 'entrou', entidade: 'sessão', descricao: viaMaster ? 'Entrou com a senha master (acesso master)' : 'Entrou no programa', chave_local: crypto.randomUUID() }).catch(() => undefined)
-        }
-        setPerfil(p)
-        if (p) setBloqueioLicenca(null)
-        const liberada = !!licencaDoPerfil(p)?.liberadoHoje
-        setOffline(liberada)
-        setMaster(liberada ? 'liberacao' : null)
+      async entrar() {
+        throw new Error('O login é feito no Parallello.')
       },
       async sair() {
-        await registrarEvento({ acao: 'saiu', entidade: 'sessão', descricao: master === 'conta' ? 'Saiu do modo suporte (senha master)' : 'Saiu do programa' })
-        if (master !== 'conta') await nuvem.sair()
-        setPerfil(null)
-        setOffline(false)
-        setMaster(null)
+        /* sair é pelo menu do usuário na barra do Parallello */
       }
     }),
-    [perfil, licenca, master, bloqueioLicenca, offline, internet, carregando, erro, empresaAtual, empresas, escolherEmpresa, recarregarEmpresas, pendentes, registrarNoHistorico, registrarEvento, aparencia, recarregarAparencia, ehSuper, validar]
+    [perfil, licenca, master, bloqueioLicenca, offline, internet, carregando, erro, empresaAtual, empresas, escolherEmpresa, recarregarEmpresas, pendentes, registrarNoHistorico, registrarEvento, aparencia, recarregarAparencia, ehSuper]
   )
   return <SessaoCtx.Provider value={valor}>{children}</SessaoCtx.Provider>
 }
@@ -560,7 +491,8 @@ export function ConexoesProvider({ children }: { children: ReactNode }) {
     void recarregar()
   }, [recarregar])
 
-  const perfis = useMemo(() => todas.filter((p) => empresaAtual && p.empresaId === empresaAtual.id), [todas, empresaAtual])
+  // sem empresa (senha master sem nuvem): as conexões só deste computador
+  const perfis = useMemo(() => todas.filter((p) => (empresaAtual ? p.empresaId === empresaAtual.id : !p.empresaId)), [todas, empresaAtual])
   const locais = useMemo(() => todas.filter((p) => !p.empresaId), [todas])
   const ativos = useMemo(() => perfis.filter((p) => p.ativo !== false), [perfis])
   const ativa = ativos.find((p) => p.id === ativaId) ?? null

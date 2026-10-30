@@ -113,9 +113,7 @@ export function Faixa({ irPara }: { irPara: (aba: 'conexoes' | 'empresas') => vo
           <small>{perfil.papel === 'super_admin' ? 'Super administrador' : perfil.papel === 'admin' ? 'Administrador' : 'Operador'}</small>
         </div>
       )}
-      <button className="botao-faixa" onClick={() => void sair()} title="Sair" aria-label="Sair">
-        <Icone nome="sair" tamanho={16} />
-      </button>
+      {/* Sair: pelo menu do usuário, na barra do Parallello */}
     </header>
   )
 }

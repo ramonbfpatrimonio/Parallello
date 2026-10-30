@@ -44,7 +44,7 @@ export function Pagina_Empresas({ visivel, irParaPedido }: { visivel: boolean; i
       const id = await nuvem.criarEmpresa(resto)
       await nuvem.alterarEmpresa(id, { retencao_meses })
       void adm.registrar({ acao: 'criou', entidade: 'empresa', descricao: `Criou a empresa ${dados.nome} com o administrador ${dados.admin_email}` })
-      avisar(`Empresa ${dados.nome} criada. O administrador já pode entrar com ${dados.admin_email}.`, 'ok')
+      avisar(`Empresa ${dados.nome} criada. O administrador já pode entrar no Parallello com o usuário ${dados.admin_email} e liberar os módulos.`, 'ok')
       setNova(false)
       setDados(vazio)
       await recarregarEmpresas()
@@ -150,7 +150,7 @@ export function Pagina_Empresas({ visivel, irParaPedido }: { visivel: boolean; i
         <p className="fraco mini">Ele entra no programa, cadastra as conexões e cria os operadores da empresa.</p>
         <div className="grade-form">
           <label className="campo c12"><span>Nome</span><input className="entrada" value={dados.admin_nome} onChange={(e) => setDados({ ...dados, admin_nome: e.target.value })} /></label>
-          <label className="campo c6"><span>E-mail</span><input className="entrada" type="email" value={dados.admin_email} onChange={(e) => setDados({ ...dados, admin_email: e.target.value })} /></label>
+          <label className="campo c6"><span>Usuário para entrar no Parallello</span><input className="entrada" value={dados.admin_email} placeholder="ex.: maria.hage" spellCheck={false} onChange={(e) => setDados({ ...dados, admin_email: e.target.value })} /></label>
           <label className="campo c6"><span>Senha inicial</span><input className="entrada" type="password" value={dados.admin_senha} onChange={(e) => setDados({ ...dados, admin_senha: e.target.value })} /><small>Mínimo de 6 caracteres</small></label>
         </div>
       </Modal>

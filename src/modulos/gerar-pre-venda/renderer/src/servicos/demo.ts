@@ -259,6 +259,18 @@ export function instalarApiDemo() {
         return fila.length
       }
     },
+    // demonstração: já entra como super administrador na Hage
+    parallello: {
+      sessao: async () => ({
+        logado: true, modo: 'nuvem', modulos: ['gerar-pre-venda'], internet: true, ehAdmin: true, ehSuper: true,
+        perfil: { id: 'demo-super', nome: 'Ramon', email: 'ramon@parallello.app', papel: 'super_admin', ativo: true, empresa_id: null, empresa_nome: '', empresa_ativa: true },
+        empresaAtual: { id: HAGE, nome: 'Hage' }, empresas: [{ id: HAGE, nome: 'Hage' }, { id: NORTE, nome: 'Distribuidora Norte' }]
+      }),
+      token: async () => null,
+      escolherEmpresa: async () => undefined,
+      pedirPainel: async () => true,
+      aoMudar: () => () => undefined
+    },
     atualizacao: {
       versao: async () => '1.2.6',
       instalar: async () => {

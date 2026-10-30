@@ -24,7 +24,8 @@ export default defineConfig({
         shell: resolve(raiz, 'shell/index.html'),
         'gerar-pre-venda': resolve(raiz, 'modulos/gerar-pre-venda/renderer/index.html'),
         'prevenda-ruptura': resolve(raiz, 'modulos/prevenda-ruptura/renderer/index.html'),
-        acompanhamento: resolve(raiz, 'modulos/acompanhamento/renderer/index.html')
+        acompanhamento: resolve(raiz, 'modulos/acompanhamento/renderer/index.html'),
+        'indicador-logistico': resolve(raiz, 'modulos/indicador-logistico/renderer/index.html')
       }
     }
   }

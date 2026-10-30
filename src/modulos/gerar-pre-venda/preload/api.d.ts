@@ -78,6 +78,16 @@ export interface Api {
     listar(): Promise<RegistroFila[]>
     remover(chaves: string[]): Promise<number>
   }
+  /** Login único do Parallello (a sessão é do Parallello, não do Gerar Pré-Venda). */
+  parallello: {
+    sessao(): Promise<SessaoParallello>
+    /** Token da sessão da nuvem (null = sem internet ou entrou com a senha master sem nuvem). */
+    token(): Promise<string | null>
+    escolherEmpresa(id: string): Promise<unknown>
+    /** Abre a configuração do Parallello (pede a senha master na tela do Parallello). */
+    pedirPainel(): Promise<boolean>
+    aoMudar(fn: (s: SessaoParallello) => void): () => void
+  }
   atualizacao: {
     versao(): Promise<string>
     instalar(): Promise<void>
@@ -86,6 +96,19 @@ export interface Api {
     verificar(): Promise<{ ok: boolean; erro?: string }>
     aoMudar(fn: (estado: EstadoAtualizacao) => void): () => void
   }
+}
+
+export interface SessaoParallello {
+  logado: boolean
+  /** nuvem | offline (sem internet) | master (só este computador) | master-nuvem */
+  modo: 'nuvem' | 'offline' | 'master' | 'master-nuvem' | null
+  perfil: (PerfilOffline & { usuario?: string; modulos?: string[] }) | null
+  modulos: string[]
+  empresaAtual: { id: string; nome: string } | null
+  empresas: { id: string; nome: string }[]
+  internet: boolean
+  ehAdmin: boolean
+  ehSuper: boolean
 }
 
 declare global {
