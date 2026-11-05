@@ -67,12 +67,17 @@ Retornos99 AS (
   GROUP BY MONTH(P_Origem.[Data])
 ),
 Devolucoes AS (
-  SELECT MONTH(P_Origem.[Data]) AS Mes, COUNT(P_Ret.[Numero]) AS QtdDevL25
-  FROM [dbo].[Pedidos] P_Ret
-  INNER JOIN [dbo].[Pedidos] P_Origem ON P_Ret.[NroRef] = P_Origem.[Numero]
-  WHERE P_Ret.[Data] >= @ini AND P_Ret.[Data] <= @fim AND P_Ret.[CodOp] IN (98, 99)
-    AND P_Origem.[Data] >= @ini AND P_Origem.[Data] <= @fim
-  GROUP BY MONTH(P_Origem.[Data])
+  -- conta cada pedido de origem uma vez (trava contra duplicidade de retornos)
+  SELECT Mes, COUNT(NroRef_Origem) AS QtdDevL25
+  FROM (
+      SELECT MONTH(P_Origem.[Data]) AS Mes, P_Ret.[NroRef] AS NroRef_Origem
+      FROM [dbo].[Pedidos] P_Ret
+      INNER JOIN [dbo].[Pedidos] P_Origem ON P_Ret.[NroRef] = P_Origem.[Numero]
+      WHERE P_Ret.[Data] >= @ini AND P_Ret.[Data] <= @fim AND P_Ret.[CodOp] IN (98, 99)
+        AND P_Origem.[Data] >= @ini AND P_Origem.[Data] <= @fim
+      GROUP BY MONTH(P_Origem.[Data]), P_Ret.[NroRef]
+  ) AS BaseUnica
+  GROUP BY Mes
 ),
 SomaDias AS (
   SELECT Mes, SUM(DiasDaCarga) AS SomaDiasL13
@@ -122,14 +127,18 @@ WHERE P.[Data] >= @ini AND P.[Data] <= @fim AND O.[TipoOp] = 'V'
 GROUP BY MONTH(P.[Data]), CLI.[NroInsc], CAST(P.[Data] AS DATE)`;
 
 const PLANILHA_DICT_DEVOLUCOES = `
-SELECT MONTH(P_Ret.[Data]) AS Mes, CLI.[NroInsc] AS NroInsc, CAST(P_Ret.[Data] AS DATE) AS DataRetorno, COUNT(P_Ret.[Numero]) AS QtdeRetornos
-FROM [dbo].[Pedidos] P_Ret
-INNER JOIN [dbo].[Pedidos] P_Origem ON P_Ret.[NroRef] = P_Origem.[Numero]
-INNER JOIN (SELECT C.[Codigo], C.[NroInsc] FROM [dbo].[Clientes] C WHERE C.[NroInsc] IS NOT NULL) CLI
-        ON P_Origem.[CodClFo] = CLI.[Codigo]
-WHERE P_Ret.[Data] >= @ini AND P_Ret.[Data] <= @fim AND P_Ret.[CodOp] IN (98, 99)
-  AND P_Origem.[Data] >= @ini AND P_Origem.[Data] <= @fim
-GROUP BY MONTH(P_Ret.[Data]), CLI.[NroInsc], CAST(P_Ret.[Data] AS DATE)`;
+SELECT Mes, NroInsc, DataRetorno, COUNT(NroRef_Origem) AS QtdeRetornos
+FROM (
+    SELECT MONTH(P_Ret.[Data]) AS Mes, CLI.[NroInsc] AS NroInsc, CAST(P_Ret.[Data] AS DATE) AS DataRetorno, P_Ret.[NroRef] AS NroRef_Origem
+    FROM [dbo].[Pedidos] P_Ret
+    INNER JOIN [dbo].[Pedidos] P_Origem ON P_Ret.[NroRef] = P_Origem.[Numero]
+    INNER JOIN (SELECT C.[Codigo], C.[NroInsc] FROM [dbo].[Clientes] C WHERE C.[NroInsc] IS NOT NULL) CLI
+            ON P_Origem.[CodClFo] = CLI.[Codigo]
+    WHERE P_Ret.[Data] >= @ini AND P_Ret.[Data] <= @fim AND P_Ret.[CodOp] IN (98, 99)
+      AND P_Origem.[Data] >= @ini AND P_Origem.[Data] <= @fim
+    GROUP BY MONTH(P_Ret.[Data]), CLI.[NroInsc], CAST(P_Ret.[Data] AS DATE), P_Ret.[NroRef]
+) AS BaseUnica
+GROUP BY Mes, NroInsc, DataRetorno`;
 
 module.exports = {
   TABELAS_NECESSARIAS,

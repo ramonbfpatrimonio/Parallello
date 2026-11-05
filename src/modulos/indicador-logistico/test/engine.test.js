@@ -86,6 +86,44 @@ teste('modo planilha + status reproduzem a planilha atualizada (INDUSTRIA)', () 
   assert.strictEqual(status(0.0301, METAS_PADRAO.devolucao), 'critico');
 });
 
+teste('modo planilha + status reproduzem a planilha corrigida (COMERCIO, nov/2026)', () => {
+  const { status, ROTULO } = require('../main/status');
+  const { METAS_PADRAO } = require('../main/config');
+  const r7 = [158, 174, 119, 98, 136, 180, 130, 153, 111, 176];
+  const r8 = [139, 128, 102, 87, 96, 136, 109, 137, 89, 107];
+  const r13 = [519, 509, 650, 565, 397, 1185, 931, 453, 784, 950];
+  const r20 = [158, 174, 119, 98, 136, 180, 130, 153, 111, 121];
+  const r25 = [19, 46, 17, 11, 40, 44, 21, 16, 22, 14];
+  const linhas = r7.map((_, i) => ({ Mes: i + 1, QtdL7: r7[i], QtdCargaA: r20[i], QtdOp99: r20[i] - r8[i], QtdDevL25: r25[i], SomaDiasL13: r13[i], CustoTotal: 0 }));
+  const res = calcularPlanilha({ consolidado: false, conexoes: [{ nome: 'COMERCIO', linhas }] });
+  assert.strictEqual(L(res, 'programadas').total, 1435);
+  assert.strictEqual(L(res, 'realizadas').total, 1130);
+  perto(L(res, 'cumprimento').total, 0.7965357609350683, 'O9');
+  perto(L(res, 'prazo').total, 6.144247787610619, 'O15');
+  perto(L(res, 'custoEntrega').total, 0, 'O21');
+  assert.strictEqual(L(res, 'devolvidos').total, 250);
+  perto(L(res, 'devolucao').total, 0.17582994154427062, 'O27');
+  assert.strictEqual(ROTULO[status(L(res, 'cumprimento').total, METAS_PADRAO.cumprimento)], 'CRÍTICO');
+  assert.strictEqual(ROTULO[status(L(res, 'prazo').total, METAS_PADRAO.prazo)], 'CRÍTICO');
+  assert.strictEqual(ROTULO[status(L(res, 'custoEntrega').total, METAS_PADRAO.custo)], 'META ATINGIDA');
+  assert.strictEqual(ROTULO[status(L(res, 'devolucao').total, METAS_PADRAO.devolucao)], 'CRÍTICO');
+});
+
+teste('modo padrão conta o pedido devolvido uma vez mesmo com vários retornos', () => {
+  const a = {
+    nome: 'A',
+    pedidos: [{ Numero: 1, Data: new Date('2026-03-02T00:00:00Z'), Situacao: 'A' }],
+    retornos: [
+      { Numero: 10, Data: new Date('2026-03-05T00:00:00Z'), CodOp: 98, NroRef: 1 },
+      { Numero: 11, Data: new Date('2026-03-06T00:00:00Z'), CodOp: 99, NroRef: 1 }
+    ],
+    prevendas: [], custos: []
+  };
+  const r = calcularPadrao({ ini: '2026-03-01', fim: '2026-03-31', conexoes: [a], unificar: true });
+  assert.strictEqual(L(r, 'devolvidos').total, 1);
+  assert.strictEqual(L(r, 'devolucao').total, 1);
+});
+
 // ---------------------------------------------------------------------------
 // 2) Modo padrão: cálculo por pedido
 // ---------------------------------------------------------------------------

@@ -59,7 +59,7 @@ Depois de entrar com o MASTER:
 - Custos de um mês sem pedidos aparecem normalmente.
 - **Unificar** (consultando mais de uma conexão): o mesmo cliente (`Clientes.NroInsc`) no mesmo dia conta uma vez só, valendo a conexão de cima na lista. Isso vale para todos os indicadores.
 
-**Planilha**: réplica fiel da macro `ConsultarPainel`. Os números batem com a planilha (inclusive % acima de 100%, médias de percentuais e as devoluções contadas pela data do retorno no filtro TODOS). Serve para comparar.
+**Planilha**: réplica fiel da macro `ConsultarPainel` (versão de 05/11/2026, que conta cada pedido devolvido uma vez só). Os números batem com a planilha (inclusive % acima de 100%, médias de percentuais e as devoluções contadas pela data do retorno no filtro TODOS). Serve para comparar.
 
 ## Estrutura
 
@@ -88,3 +88,8 @@ O app foi feito isolado para encaixar como card:
 - **Canais IPC**: todos começam com prefixos (`painel:`, `conexoes:`…). No Parallello, renomeie para `logistica:painel:…` para não colidir com os outros apps.
 - **Telas**: `src/paginas` + `src/componentes` usam só `lib/api.js` para falar com o Electron. Troque o canal ali.
 - **Logo do card**: `public/logo.svg`.
+
+## Versões
+
+- **1.0.1**: modo planilha atualizado com a correção das devoluções da planilha (cada pedido de origem conta uma vez, mesmo com vários retornos 98/99).
+- **1.0.0**: primeira versão.
