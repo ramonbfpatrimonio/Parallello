@@ -89,6 +89,12 @@ const REGRAS = {
       });
     },
   },
+  'comissao-contas-recebidas': {
+    // só o arquivo de dados (fechamentos e preferências); as conexões passam a ser as do Parallello
+    origens: (ad) => [path.join(ad, 'Comissão por Contas Recebidas'), path.join(ad, 'Comissao por Contas Recebidas'), path.join(ad, 'comissao-contas-recebidas')],
+    temDados: (o) => fs.existsSync(path.join(o, 'comissao-local.sqlite')),
+    copiar: (o, d) => copiar(path.join(o, 'comissao-local.sqlite'), path.join(d, 'comissao-local.sqlite')),
+  },
   'pesquisa-relatorios': {
     origens: (ad) => [path.join(ad, 'PesquisaRelatorios')],
     temDados: (o) => fs.existsSync(path.join(o, 'dados')),

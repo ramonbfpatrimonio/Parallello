@@ -44,6 +44,12 @@ export const CATALOGO = [
     fundo: '#eef3f4',
     pagina: 'modulos/indicador-logistico/renderer/index.html',
   },
+  {
+    id: 'comissao-contas-recebidas',
+    nome: 'Comissão por Contas Recebidas',
+    descricao: 'Comissão dos vendedores pelas parcelas recebidas, com resumo por fabricante e fechamentos.',
+    cor: '#7a4fe0',
+    fundo: '#f3f5f9',
+    pagina: 'modulos/comissao-contas-recebidas/renderer/index.html',
+  },
 ];
-
-

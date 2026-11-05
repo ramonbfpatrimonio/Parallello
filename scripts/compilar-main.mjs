@@ -32,6 +32,8 @@ export async function compilarMain({ dev = false } = {}) {
     external: ['electron', 'electron-updater', 'pdfjs-dist', 'msnodesqlv8'],
     define: { 'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production') }
   })
+  // SQLite do Comissão por Contas Recebidas (sql.js): o .wasm vai ao lado do processo principal
+  copyFileSync(resolve(raiz, 'node_modules/sql.js/dist/sql-wasm.wasm'), out('main/sql-wasm.wasm'))
   // preloads: um por tela. Só podem usar o módulo 'electron' (telas em sandbox).
   const preloads = {
     shell: src('preload/shell.js'),
@@ -39,7 +41,8 @@ export async function compilarMain({ dev = false } = {}) {
     'prevenda-ruptura': src('modulos/prevenda-ruptura/main/preload.js'),
     acompanhamento: src('modulos/acompanhamento/main/preload.cjs'),
     'pesquisa-relatorios': src('modulos/pesquisa-relatorios/preload.js'),
-    'indicador-logistico': src('modulos/indicador-logistico/main/preload.js')
+    'indicador-logistico': src('modulos/indicador-logistico/main/preload.js'),
+    'comissao-contas-recebidas': src('modulos/comissao-contas-recebidas/main/preload.js')
   }
   await Promise.all(
     Object.entries(preloads).map(([nome, entrada]) =>

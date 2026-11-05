@@ -18,7 +18,7 @@ export function criarPonteDemo() {
     entrar: async (u) =>
       u === 'joao'
         ? mudar({ sessao: { logado: true, modo: 'nuvem', perfil: { nome: 'João Souza', usuario: 'joao', papel: 'operador' }, modulos: [], permitidos: ['acompanhamento', 'pesquisa-relatorios'], configLiberada: false, empresaAtual: { id: 'e1', nome: 'Hage' }, empresas: [], ehAdmin: false, ehSuper: false, internet: true } })
-        : mudar({ sessao: { logado: true, modo: 'master', perfil: { nome: 'Administrador', usuario: u, papel: 'super_admin' }, modulos: [], permitidos: ['gerar-pre-venda', 'prevenda-ruptura', 'acompanhamento', 'pesquisa-relatorios', 'indicador-logistico'], configLiberada: true, empresaAtual: { id: 'e1', nome: 'Hage' }, empresas: [{ id: 'e1', nome: 'Hage', modulos: null }], ehAdmin: true, ehSuper: true, internet: false } }),
+        : mudar({ sessao: { logado: true, modo: 'master', perfil: { nome: 'Administrador', usuario: u, papel: 'super_admin' }, modulos: [], permitidos: ['gerar-pre-venda', 'prevenda-ruptura', 'acompanhamento', 'pesquisa-relatorios', 'indicador-logistico', 'comissao-contas-recebidas'], configLiberada: true, empresaAtual: { id: 'e1', nome: 'Hage' }, empresas: [{ id: 'e1', nome: 'Hage', modulos: null }], ehAdmin: true, ehSuper: true, internet: false } }),
     definirMeusModulos: async (m) => mudar({ sessao: { ...estado.sessao, modulos: m } }),
     sair: async () => mudar({ sessao: sessaoVazia, abas: [], atual: null }),
     abrir: async (id) => {

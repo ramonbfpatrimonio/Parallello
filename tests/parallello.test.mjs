@@ -130,6 +130,18 @@ test('Indicador Logístico: copia usuários, histórico e conexões; tira só a 
   assert.ok(fs.existsSync(path.join(nova, 'historico', 'indice.json')))
 })
 
+test('Comissão por Contas Recebidas: copia só o arquivo de dados (sem o cache do Chromium)', () => {
+  const t = pastaTemp()
+  const antiga = path.join(t, 'appdata', 'Comissão por Contas Recebidas')
+  fs.mkdirSync(path.join(antiga, 'Cache'), { recursive: true })
+  fs.writeFileSync(path.join(antiga, 'comissao-local.sqlite'), 'sqlite')
+  fs.writeFileSync(path.join(antiga, 'Cache', 'lixo'), 'x')
+  const nova = path.join(t, 'modulos', 'comissao-contas-recebidas')
+  assert.equal(migrarSePreciso('comissao-contas-recebidas', nova, path.join(t, 'appdata')), antiga)
+  assert.equal(fs.readFileSync(path.join(nova, 'comissao-local.sqlite'), 'utf8'), 'sqlite')
+  assert.ok(!fs.existsSync(path.join(nova, 'Cache')))
+})
+
 test('sem programa antigo: abre vazio e marca como verificado', () => {
   const t = pastaTemp()
   const nova = path.join(t, 'modulos', 'acompanhamento')

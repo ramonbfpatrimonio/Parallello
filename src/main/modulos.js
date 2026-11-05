@@ -6,4 +6,5 @@ export const FABRICAS = {
   acompanhamento: () => require('../modulos/acompanhamento/main/modulo.cjs'),
   'pesquisa-relatorios': () => require('../modulos/pesquisa-relatorios/modulo.js'),
   'indicador-logistico': () => require('../modulos/indicador-logistico/main/modulo.js'),
+  'comissao-contas-recebidas': () => require('../modulos/comissao-contas-recebidas/main/modulo.js'),
 };

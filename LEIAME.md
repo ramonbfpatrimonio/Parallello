@@ -9,6 +9,7 @@ Um programa só (Electron + React) com os sistemas:
 | **Acompanhamento de Vendas** | Relatórios de vendas por fabricante, ranking, setor e ruptura | `src/modulos/acompanhamento` |
 | **Pesquisa de Relatórios** | Quais relatórios do Ativo.ERP têm as colunas procuradas | `src/modulos/pesquisa-relatorios` |
 | **Indicador Logístico** | Cumprimento de entregas, prazo médio, custo por entrega e devoluções, com metas | `src/modulos/indicador-logistico` |
+| **Comissão por Contas Recebidas** | Comissão dos vendedores pelas parcelas recebidas, configuração de % por fabricante no ERP e fechamentos | `src/modulos/comissao-contas-recebidas` |
 
 ## Login, módulos e configuração (um só para tudo)
 
@@ -40,7 +41,9 @@ Um programa só (Electron + React) com os sistemas:
   - **Modelos de Pedido** e **Aparência** continuam dentro do Gerar Pré-Venda (menu lateral, para o super administrador).
 - **Como cada sistema usa a conexão:** o Pré-Venda de Ruptura entra sozinho na última empresa usada (*Trocar empresa*
   no menu lateral); o Acompanhamento soma todas as conexões ativas; o Indicador Logístico usa "Todas", por grupo
-  (o campo *Cliente*) ou uma conexão; o Gerar Pré-Venda escolhe a conexão na faixa superior.
+  (o campo *Cliente*) ou uma conexão; o Gerar Pré-Venda escolhe a conexão na faixa superior; o Comissão por Contas
+  Recebidas escolhe a conexão no próprio filtro (lembra a última usada). Gravar % de comissão no ERP
+  (*Configurar Comissões*) é só para administradores; os demais consultam.
 - **Licença:** a cobrança mensal vale para o Parallello inteiro. Vencendo ou atrasada, aparece o aviso na barra;
   passou da tolerância, ninguém da empresa entra até a baixa do pagamento.
 
