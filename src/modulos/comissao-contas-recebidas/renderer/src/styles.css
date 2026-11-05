@@ -245,6 +245,22 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .acoes-linha { display: flex; gap: 2px; justify-content: flex-end; }
 tr.clicavel { cursor: default; }
 
+/* Puxador das tabelas (arrastar para cima) */
+.tabela-wrap.arrastavel { max-height: none; }
+.puxador {
+  height: 16px; margin: 2px 0 6px; display: grid; place-items: center;
+  cursor: row-resize; border-radius: 8px; user-select: none;
+  transition: background .15s;
+}
+.puxador:hover, .puxador.ativo { background: #e3e9f2; }
+.puxador-pega { width: 56px; height: 5px; border-radius: 5px; background: #b8c3d3; transition: background .15s, width .15s; }
+.puxador:hover .puxador-pega, .puxador.ativo .puxador-pega { background: var(--acento); width: 80px; }
+body.arrastando-y, body.arrastando-y * { cursor: row-resize !important; user-select: none !important; }
+
+/* Senha da área de sistema */
+.senha-sistema { display: flex; flex-direction: column; gap: 12px; }
+.senha-icone { width: 52px; height: 52px; border-radius: 14px; background: var(--azul-claro); color: var(--azul); display: grid; place-items: center; }
+
 /* Modal */
 .modal-fundo { position: fixed; inset: 0; background: rgba(15, 25, 45, .45); display: grid; place-items: center; z-index: 100; animation: aparecer .15s; }
 .modal { background: #fff; border-radius: 14px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(0, 0, 0, .25); animation: subir .18s; }
@@ -267,3 +283,31 @@ tr.clicavel { cursor: default; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .busca { width: 240px; }
 }
+
+/* Tabelas sem quebra de linha: o que não couber vira rolagem horizontal */
+.tabela { width: max-content; min-width: 100%; }
+.tabela th, .tabela td, .subtabela th, .subtabela td { white-space: nowrap; }
+.subtabela { width: max-content; min-width: 100%; }
+.tabela.editavel { width: 100%; }
+.tabela-wrap { overflow: auto; scrollbar-gutter: stable; }
+.tabela-wrap::-webkit-scrollbar { width: 12px; height: 12px; }
+.tabela-wrap::-webkit-scrollbar-track { background: #f0f3f8; }
+.tabela-wrap::-webkit-scrollbar-thumb { background: #b8c3d3; border-radius: 8px; border: 3px solid #f0f3f8; }
+.tabela-wrap::-webkit-scrollbar-thumb:hover { background: #8f9db3; }
+.tabela-wrap::-webkit-scrollbar-corner { background: #f0f3f8; }
+
+/* Regras de cálculo */
+.regras { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+.regra { cursor: pointer; display: block; transition: border-color .15s, box-shadow .15s; }
+.regra.ligada { border-color: #9dbbe0; box-shadow: 0 0 0 3px rgba(47, 125, 225, .08); }
+.regra-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.regra h3 { margin: 0 0 6px; font-size: 15px; }
+.regra p { margin: 0; color: var(--suave); line-height: 1.5; }
+
+/* Pedidos com ICMS-ST */
+.selo-st {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 20px;
+  background: #fff1e0; color: #c2410c; border: 1px solid #fdba74;
+  font: 700 10.5px/1.5 'Segoe UI', system-ui, sans-serif; letter-spacing: .04em; vertical-align: 1px; cursor: help;
+}
+.valor-st { color: #c2410c; font-weight: 600; }

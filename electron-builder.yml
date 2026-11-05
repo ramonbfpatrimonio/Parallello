@@ -1,5 +1,7 @@
 appId: br.com.ramon.parallello
 productName: Parallello
+# Usa o Electron já instalado em node_modules (o electron-builder não baixa do GitHub: evita erro 504/timeout)
+electronDist: node_modules/electron/dist
 directories:
   buildResources: build
   output: dist

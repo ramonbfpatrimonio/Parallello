@@ -54,6 +54,9 @@ function processarRelatorio(linhas, filtros, vendedores = []) {
         codCliente: '',
         nomeCliente: '',
         totalPedido: 0,
+        totalBruto: 0,
+        totalST: 0,
+        totalDevolvido: 0,
         parcelas: [],
         itens: [],
         recebido: 0,
@@ -74,12 +77,16 @@ function processarRelatorio(linhas, filtros, vendedores = []) {
       p.codCliente = p.codCliente || txt(l.CodCliente);
       p.nomeCliente = p.nomeCliente || txt(l.NomeCliente);
       p.totalPedido = num(l.TotalPedido) || 0;
+      p.totalBruto = num(l.TotalBruto) || 0;
+      p.totalST = num(l.TotalST) || 0;
+      p.totalDevolvido = num(l.TotalDevolvido) || 0;
       p.parcelas.push({
         vencimento: dataISO(l.Vencimento),
         dataBaixa: dataISO(l.DataBaixa),
         documento: txt(l.Documento),
         totalPedido: num(l.TotalPedido) || 0,
         valorRecebido: recebido,
+        recebidoBruto: num(l.RecebidoBruto) ?? recebido,
         percComis: perc,
         valorComissao: comissao
       });
@@ -95,7 +102,8 @@ function processarRelatorio(linhas, filtros, vendedores = []) {
         quant: num(l.Quant) || 0,
         valorTotalItem: num(l.ValorTotalItem) || 0,
         perFabr: num(l.PerFabr) || 0,
-        valorComissaoItem: num(l.ValorComissaoItem) || 0
+        valorComissaoItem: num(l.ValorComissaoItem) || 0,
+        stItem: num(l.STItem) || 0
       };
       p.itens.push(item);
       p.comissaoItens = r2(p.comissaoItens + item.valorComissaoItem);
@@ -108,8 +116,11 @@ function processarRelatorio(linhas, filtros, vendedores = []) {
     pedidos: lista.filter((p) => p.parcelas.length).length,
     parcelas: lista.reduce((s, p) => s + p.parcelas.length, 0),
     itens: lista.reduce((s, p) => s + p.itens.length, 0),
-    // cada pedido conta uma vez (a planilha somava o total do pedido em cada parcela)
-    totalPedidos: r2(lista.reduce((s, p) => s + (p.parcelas.length ? p.totalPedido : 0), 0)),
+    // igual à planilha (SUMIF nas linhas de parcela): o total do pedido entra uma vez por parcela
+    totalPedidos: r2(lista.reduce((s, p) => s + p.parcelas.length * p.totalPedido, 0)),
+    totalBruto: r2(lista.reduce((s, p) => s + p.parcelas.length * p.totalBruto, 0)),
+    totalST: r2(lista.reduce((s, p) => s + p.parcelas.length * p.totalST, 0)),
+    totalDevolvido: r2(lista.reduce((s, p) => s + p.parcelas.length * p.totalDevolvido, 0)),
     recebido: r2(lista.reduce((s, p) => s + p.recebido, 0)),
     comissao: r2(lista.reduce((s, p) => s + p.comissao, 0)),
     comissaoItens: r2(lista.reduce((s, p) => s + p.comissaoItens, 0))

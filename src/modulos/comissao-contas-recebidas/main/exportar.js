@@ -14,13 +14,23 @@ function dataBR(iso) {
   return `${d}/${m}/${a}`;
 }
 
+function rotuloRegras(r) {
+  if (!r) return '';
+  if ('somarST' in r)
+    return `Regras: ${r.somarST ? 'com ICMS-ST (total, itens e recebido)' : 'sem ICMS-ST (total, itens e recebido)'} · devoluções descontadas`;
+  return `Regras: ${r.abaterST === false ? 'não abate ST' : 'abate ST'} · ${r.abaterDevolucoes === false ? 'não abate devoluções' : 'abate devoluções'}`;
+}
+
 function rotuloFiltros(f) {
   return [
     `Baixa: ${dataBR(f.baixaInicio)} a ${dataBR(f.baixaFim)}`,
     `Vendas a prazo a partir de: ${dataBR(f.vendaDesde)}`,
     `Vendedor: ${f.vendedorRotulo || 'Todos'}`,
-    `Conexão: ${f.conexaoNome || ''}`
-  ].join('   |   ');
+    `Conexão: ${f.conexaoNome || ''}`,
+    rotuloRegras(f.regras)
+  ]
+    .filter(Boolean)
+    .join('   |   ');
 }
 
 async function gerarExcel(res, { mostrarItens = true } = {}) {
@@ -28,17 +38,17 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
   wb.creator = 'Comissão por Contas Recebidas';
   const ws = wb.addWorksheet('Comissões', { views: [{ state: 'frozen', ySplit: 4 }], properties: { outlineProperties: { summaryBelow: false } } });
 
-  ws.mergeCells('A1:R1');
+  ws.mergeCells('A1:S1');
   ws.getCell('A1').value = 'PAINEL DE COMISSÕES';
   ws.getCell('A1').font = { bold: true, size: 14, color: { argb: AZUL } };
-  ws.mergeCells('A2:R2');
+  ws.mergeCells('A2:S2');
   ws.getCell('A2').value = rotuloFiltros(res.filtros || {});
   ws.getCell('A2').font = { size: 10, color: { argb: 'FF555555' } };
 
   const cab = [
     'Tipo', 'Data Pedido', 'Pedido', 'Vencimento', 'Data Baixa', 'Cód. Cliente', 'Cliente', 'Documento',
     'Total Pedido', 'Valor Recebido', '% Comissão', 'Valor Comissão', 'Produto', 'Descrição', 'Quant.',
-    'Valor Item', '% Fabr.', 'Comissão Item'
+    'Valor Item', '% Fabr.', 'Comissão Item', 'ICMS-ST'
   ];
   const linhaCab = ws.getRow(4);
   linhaCab.values = cab;
@@ -47,11 +57,11 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
     c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL } };
     c.alignment = { vertical: 'middle' };
   });
-  ws.autoFilter = { from: 'A4', to: 'R4' };
+  ws.autoFilter = { from: 'A4', to: 'S4' };
 
-  const larguras = [9, 12, 11, 12, 12, 11, 38, 20, 14, 15, 11, 15, 26, 42, 9, 14, 9, 14];
+  const larguras = [9, 12, 11, 12, 12, 11, 38, 20, 14, 15, 11, 15, 26, 42, 9, 14, 9, 14, 13];
   larguras.forEach((w, i) => (ws.getColumn(i + 1).width = w));
-  for (const col of [9, 10, 12, 16, 18]) ws.getColumn(col).numFmt = MOEDA;
+  for (const col of [9, 10, 12, 16, 18, 19]) ws.getColumn(col).numFmt = MOEDA;
   ws.getColumn(11).numFmt = '0.00 %';
   ws.getColumn(15).numFmt = '#,##0.00';
   ws.getColumn(17).numFmt = '0.00';
@@ -62,18 +72,24 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
     for (const pa of p.parcelas) {
       const r = ws.addRow([
         'Parcela', toDate(p.dataPedido), p.pedido, toDate(pa.vencimento), toDate(pa.dataBaixa), p.codCliente, p.nomeCliente,
-        pa.documento, pa.totalPedido, pa.valorRecebido, pa.percComis === null ? null : pa.percComis / 100, pa.valorComissao
+        pa.documento, pa.totalPedido, pa.valorRecebido, pa.percComis === null ? null : pa.percComis / 100, pa.valorComissao,
+        null, null, null, null, null, null, temST(p) ? p.totalST || null : null
       ]);
       r.font = { bold: true };
       r.eachCell({ includeEmpty: true }, (c, n) => {
-        if (n <= 18) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_CLARO } };
+        if (n <= 19) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_CLARO } };
       });
       for (const col of [2, 4, 5]) r.getCell(col).numFmt = 'dd/mm/yyyy';
+      if (temST(p)) {
+        r.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE0B2' } };
+        r.getCell(3).font = { bold: true, color: { argb: 'FFC2410C' } };
+        r.getCell(19).font = { bold: true, color: { argb: 'FFC2410C' } };
+      }
     }
     for (const it of p.itens) {
       const r = ws.addRow([
         'Item', null, p.pedido, null, null, null, null, null, null, null, null, null,
-        it.produto, it.descProduto, it.quant, it.valorTotalItem, it.perFabr, it.valorComissaoItem
+        it.produto, it.descProduto, it.quant, it.valorTotalItem, it.perFabr, it.valorComissaoItem, it.stItem || null
       ]);
       r.outlineLevel = 1;
       r.hidden = !mostrarItens;
@@ -82,8 +98,9 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
 
   const t = res.totais;
   const rt = ws.addRow(['TOTAL', null, `${t.pedidos} pedidos`, null, null, null, `${t.parcelas} parcelas`, null, t.totalPedidos, t.recebido, null, t.comissao, null, null, null, null, null, t.comissaoItens]);
+  rt.getCell(19).value = res.pedidos.reduce((s, p) => s + (p.totalST || 0), 0) || null;
   rt.eachCell({ includeEmpty: true }, (c, n) => {
-    if (n > 18) return;
+    if (n > 19) return;
     c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL } };
   });
@@ -117,6 +134,10 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
   return wb.xlsx.writeBuffer();
 }
 
+function temST(p) {
+  return (p.totalST || 0) > 0 || p.itens.some((i) => (i.stItem || 0) > 0);
+}
+
 function estilizarCab(ws) {
   ws.getRow(1).eachCell((c) => {
     c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -135,12 +156,12 @@ function htmlRelatorio(res, { mostrarItens }) {
   let linhas = '';
   for (const p of res.pedidos) {
     for (const pa of p.parcelas) {
-      linhas += `<tr class="parc"><td>${esc(p.pedido)}</td><td>${dataBR(p.dataPedido)}</td><td>${esc(p.codCliente)} - ${esc(p.nomeCliente)}</td><td>${esc(pa.documento)}</td><td>${dataBR(pa.vencimento)}</td><td>${dataBR(pa.dataBaixa)}</td><td class="n">${moeda(pa.totalPedido)}</td><td class="n">${moeda(pa.valorRecebido)}</td><td class="n">${pct(pa.percComis)}</td><td class="n">${moeda(pa.valorComissao)}</td></tr>`;
+      linhas += `<tr class="parc"><td>${esc(p.pedido)}${temST(p) ? ' <span class="st">ST</span>' : ''}</td><td>${dataBR(p.dataPedido)}</td><td>${esc(p.codCliente)} - ${esc(p.nomeCliente)}</td><td>${esc(pa.documento)}</td><td>${dataBR(pa.vencimento)}</td><td>${dataBR(pa.dataBaixa)}</td><td class="n">${moeda(pa.totalPedido)}</td><td class="n">${moeda(pa.valorRecebido)}</td><td class="n">${pct(pa.percComis)}</td><td class="n">${moeda(pa.valorComissao)}</td></tr>`;
     }
     if (mostrarItens && p.itens.length) {
-      linhas += `<tr class="itens"><td></td><td colspan="9"><table class="sub"><thead><tr><th>Produto</th><th>Descrição</th><th class="n">Quant.</th><th class="n">Valor</th><th class="n">% Fabr.</th><th class="n">Comissão</th></tr></thead><tbody>`;
+      linhas += `<tr class="itens"><td></td><td colspan="9"><table class="sub"><thead><tr><th>Produto</th><th>Descrição</th><th class="n">Quant.</th><th class="n">Valor</th><th class="n">ICMS-ST</th><th class="n">% Fabr.</th><th class="n">Comissão</th></tr></thead><tbody>`;
       for (const i of p.itens)
-        linhas += `<tr><td>${esc(i.produto)}</td><td>${esc(i.descProduto)}</td><td class="n">${qtd(i.quant)}</td><td class="n">${moeda(i.valorTotalItem)}</td><td class="n">${pct(i.perFabr)}</td><td class="n">${moeda(i.valorComissaoItem)}</td></tr>`;
+        linhas += `<tr><td>${esc(i.produto)}</td><td>${esc(i.descProduto)}</td><td class="n">${qtd(i.quant)}</td><td class="n">${moeda(i.valorTotalItem)}</td><td class="n">${i.stItem ? moeda(i.stItem) : '—'}</td><td class="n">${pct(i.perFabr)}</td><td class="n">${moeda(i.valorComissaoItem)}</td></tr>`;
       linhas += `</tbody></table></td></tr>`;
     }
   }
@@ -157,6 +178,7 @@ function htmlRelatorio(res, { mostrarItens }) {
   .n{text-align:right;white-space:nowrap} tr.parc td{background:#ebf1fa;font-weight:600}
   table.sub th{background:#eef1f6;color:#333} table.sub td{border-bottom:1px dotted #e3e6ec}
   tfoot td{background:#1f4e78;color:#fff;font-weight:700} h2{font-size:12px;color:#1f4e78;margin:16px 0 6px}
+  .st{display:inline-block;margin-left:5px;padding:0 5px;border-radius:8px;background:#fff1e0;color:#c2410c;border:1px solid #fdba74;font-size:8px;font-weight:700}
   thead{display:table-header-group} tr{page-break-inside:avoid}
   </style></head><body>
   <h1>Comissão por Contas Recebidas</h1>
@@ -191,4 +213,23 @@ async function gerarPdf(res, opts = {}) {
   }
 }
 
-module.exports = { gerarExcel, gerarPdf, htmlRelatorio };
+// Imprime direto (abre a janela de impressão do Windows)
+async function imprimir(res, opts = {}, pai) {
+  const tmp = path.join(app.getPath('temp'), `comissao-imprimir-${Date.now()}.html`);
+  fs.writeFileSync(tmp, htmlRelatorio(res, opts), 'utf8');
+  const win = new BrowserWindow({ show: false, parent: pai || undefined, webPreferences: { javascript: false } });
+  try {
+    await win.loadFile(tmp);
+    return await new Promise((resolve, reject) => {
+      win.webContents.print({ silent: false, printBackground: true, landscape: true }, (ok, motivo) => {
+        if (ok || /cancel/i.test(String(motivo || ''))) resolve(!!ok);
+        else reject(new Error('Não foi possível imprimir: ' + motivo));
+      });
+    });
+  } finally {
+    win.destroy();
+    fs.unlink(tmp, () => {});
+  }
+}
+
+module.exports = { gerarExcel, gerarPdf, imprimir, htmlRelatorio };

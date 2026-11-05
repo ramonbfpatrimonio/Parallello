@@ -8,6 +8,7 @@ const store = require('./store');
 const erp = require('./erp');
 const { processarRelatorio } = require('./processar');
 const exportar = require('./exportar');
+const { ehSenhaMaster } = require('../../../compartilhado/master.js');
 
 const NA_PARALLELLO = 'As conexões com o banco agora ficam no Parallello: Ctrl+Shift+B na tela inicial (Configuração > Conexão com o banco).';
 
@@ -46,6 +47,17 @@ module.exports = function criarModulo(ctx) {
     if (!senha && !c.temSenha) throw new Error(`A conexão "${c.nome}" está sem senha neste computador. ${NA_PARALLELLO}`);
     return { ...c, senha };
   }
+
+  // Regras de cálculo (área de sistema). Padrão: Somar ICMS-ST desligado.
+  function regrasCalculo() {
+    const r = store.configObter('regrasCalculo', {}) || {};
+    return { somarST: r.somarST === true };
+  }
+  // Área de sistema (Ctrl+Shift+B): a senha master do Parallello (P@r@llell0 + data), conferida pelo hash
+  let sistemaLiberado = false;
+  const exigirSistema = () => {
+    if (!sistemaLiberado) throw new Error('Área de sistema bloqueada. Pressione Ctrl+Shift+B e informe a senha.');
+  };
 
   const vendedoresCache = (conexaoId) =>
     store.all('SELECT codigo, nome FROM vendedores_cache WHERE conexao_id = ? ORDER BY nome', [conexaoId]);
@@ -90,6 +102,18 @@ module.exports = function criarModulo(ctx) {
   });
   handle('conexoes:testar', async (c) => erp.testar(await conexaoCompleta(c && c.id)));
 
+  // Área de sistema e regras de cálculo
+  handle('sistema:liberar', (senha) => {
+    sistemaLiberado = ehSenhaMaster(senha);
+    return sistemaLiberado;
+  });
+  handle('regras:obter', () => regrasCalculo());
+  handle('regras:salvar', (r) => {
+    exigirSistema();
+    store.configDefinir('regrasCalculo', { somarST: !!(r && r.somarST) });
+    return regrasCalculo();
+  });
+
   // Vendedores e fabricantes
   handle('vendedores:listar', async (conexaoId, atualizar) => {
     const c = await conexaoCompleta(conexaoId);
@@ -108,10 +132,11 @@ module.exports = function criarModulo(ctx) {
   // Relatório
   handle('relatorio:buscar', async (conexaoId, filtros) => {
     const c = await conexaoCompleta(conexaoId);
-    const linhas = await erp.relatorio(c, filtros);
+    const regras = regrasCalculo();
+    const linhas = await erp.relatorio(c, { ...filtros, regras });
     store.configDefinir('ultimosFiltros', { ...filtros, conexaoId: c.id });
     store.configDefinir('conexaoPadrao', c.id);
-    return processarRelatorio(linhas, { ...filtros, conexaoNome: c.nome }, vendedoresCache(c.id));
+    return processarRelatorio(linhas, { ...filtros, conexaoNome: c.nome, regras }, vendedoresCache(c.id));
   });
 
   // Configuração de comissões (grava no ERP: só administradores alteram)
@@ -149,6 +174,8 @@ module.exports = function criarModulo(ctx) {
     salvarArquivo('Salvar PDF', nomeArquivo(resultado, 'pdf'), [{ name: 'PDF', extensions: ['pdf'] }], await exportar.gerarPdf(resultado, opts))
   );
 
+  handle('exportar:imprimir', (resultado, opts) => exportar.imprimir(resultado, opts, ctx.janela()));
+
   // Config simples
   handle('config:obter', (chave, padrao) => store.configObter(chave, padrao));
   handle('config:definir', (chave, valor) => {
@@ -163,6 +190,7 @@ module.exports = function criarModulo(ctx) {
     return { caminho: arq, tamanho: st.size, alterado: st.mtime.toISOString(), versao: ctx.versao };
   });
   handle('backup:exportar', async () => {
+    exigirSistema();
     const hoje = new Date().toISOString().slice(0, 10);
     const r = await dialog.showSaveDialog(ctx.janela(), {
       title: 'Salvar backup',
@@ -174,6 +202,7 @@ module.exports = function criarModulo(ctx) {
     return r.filePath;
   });
   handle('backup:restaurar', async () => {
+    exigirSistema();
     const r = await dialog.showOpenDialog(ctx.janela(), { title: 'Restaurar backup', properties: ['openFile'], filters: [{ name: 'Backup', extensions: ['sqlite'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
     store.restaurar(fs.readFileSync(r.filePaths[0]));

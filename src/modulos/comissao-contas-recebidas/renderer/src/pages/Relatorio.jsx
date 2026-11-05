@@ -79,7 +79,7 @@ export default function Relatorio({ conexoes, conexaoId, setConexaoId }) {
     setExportando(tipo);
     try {
       const arq = await api.exportar[tipo](resultado, { mostrarItens });
-      if (arq) avisar('Arquivo salvo em ' + arq);
+      if (arq && tipo !== 'imprimir') avisar('Arquivo salvo em ' + arq);
     } catch (e) {
       avisar(e.message, 'erro');
     } finally {
@@ -101,6 +101,9 @@ export default function Relatorio({ conexoes, conexaoId, setConexaoId }) {
             </button>
             <button className="btn" onClick={() => exportar('pdf')} disabled={!!exportando}>
               <Icone nome="pdf" /> {exportando === 'pdf' ? 'Gerando…' : 'PDF'}
+            </button>
+            <button className="btn" onClick={() => exportar('imprimir')} disabled={!!exportando}>
+              <Icone nome="imprimir" /> {exportando === 'imprimir' ? 'Abrindo…' : 'Imprimir'}
             </button>
             <button className="btn primario" onClick={() => setModalFechamento(true)}>
               <Icone nome="salvar" /> Salvar fechamento

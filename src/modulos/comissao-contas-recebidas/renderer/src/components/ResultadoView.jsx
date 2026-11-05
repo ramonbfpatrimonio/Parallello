@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import Icone from './Icone.jsx';
+import TabelaArrastavel from './TabelaArrastavel.jsx';
 import { dataBR, moeda, pct, qtd } from '../fmt.js';
 
 // Mostra o resultado do relatório (usado no Relatório e nos Fechamentos)
@@ -33,7 +34,6 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
     });
 
   const t = resultado.totais;
-  const diferenca = Math.round((t.comissaoItens - t.comissao) * 100) / 100;
 
   return (
     <div className="resultado">
@@ -41,28 +41,23 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
         <div className="kpi">
           <span>Pedidos</span>
           <strong>{t.pedidos}</strong>
-          <small>{t.parcelas} parcelas recebidas</small>
         </div>
         <div className="kpi">
           <span>Total dos pedidos</span>
           <strong>{moeda(t.totalPedidos)}</strong>
-          <small>já descontadas devoluções</small>
         </div>
         <div className="kpi">
           <span>Total recebido</span>
           <strong>{moeda(t.recebido)}</strong>
-          <small>baixas no período</small>
         </div>
         <div className="kpi destaque">
           <span>Comissão a pagar</span>
           <strong>{moeda(t.comissao)}</strong>
-          <small title="Soma da comissão calculada item a item (sem ICMS-ST e devoluções), para conferência">
-            pelos itens: {moeda(t.comissaoItens)}
-            {diferenca !== 0 && <em className={diferenca > 0 ? 'pos' : 'neg'}> ({diferenca > 0 ? '+' : ''}{moeda(diferenca)})</em>}
-          </small>
         </div>
       </div>
 
+      <TabelaArrastavel
+        cabecalho={
       <div className="barra-resultado">
         <div className="abas">
           {[
@@ -89,9 +84,11 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
           </div>
         )}
       </div>
+        }
+      >
 
       {aba === 'detalhado' && (
-        <div className="tabela-wrap">
+        <>
           <table className="tabela">
             <thead>
               <tr>
@@ -122,7 +119,14 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
                             </button>
                           )}
                         </td>
-                        <td className="mono">{p.pedido}</td>
+                        <td className="mono">
+                          {p.pedido}
+                          {temST(p) && (
+                            <span className="selo-st" title={`Pedido com ICMS-ST: ${moeda(p.totalST || p.itens.reduce((x, i) => x + (i.stItem || 0), 0))}`}>
+                              ST
+                            </span>
+                          )}
+                        </td>
                         <td>{dataBR(p.dataPedido)}</td>
                         <td>
                           <span className="cod">{p.codCliente}</span> {p.nomeCliente}
@@ -148,6 +152,7 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
                                 <th>Fabricante</th>
                                 <th className="n">Quant.</th>
                                 <th className="n">Valor item</th>
+                                <th className="n">ICMS-ST</th>
                                 <th className="n">% Fabr.</th>
                                 <th className="n">Comissão item</th>
                               </tr>
@@ -160,6 +165,7 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
                                   <td>{i.fabricante}</td>
                                   <td className="n">{qtd(i.quant)}</td>
                                   <td className="n">{moeda(i.valorTotalItem)}</td>
+                                  <td className="n">{i.stItem ? <span className="valor-st">{moeda(i.stItem)}</span> : '—'}</td>
                                   <td className="n">{pct(i.perFabr)}</td>
                                   <td className="n">{moeda(i.valorComissaoItem)}</td>
                                 </tr>
@@ -193,11 +199,11 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
               </tr>
             </tfoot>
           </table>
-        </div>
+        </>
       )}
 
       {aba === 'fabricante' && (
-        <div className="tabela-wrap">
+        <>
           <table className="tabela">
             <thead>
               <tr>
@@ -237,11 +243,11 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
               </tr>
             </tfoot>
           </table>
-        </div>
+        </>
       )}
 
       {aba === 'vendedor' && (
-        <div className="tabela-wrap">
+        <>
           <table className="tabela">
             <thead>
               <tr>
@@ -280,8 +286,9 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
               </tr>
             </tfoot>
           </table>
-        </div>
+        </>
       )}
+      </TabelaArrastavel>
     </div>
   );
 }
@@ -296,4 +303,9 @@ function Barra({ valor, total }) {
       <span>{p.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</span>
     </div>
   );
+}
+
+// pedido tem ICMS-ST? (fechamentos antigos podem não ter totalST)
+function temST(p) {
+  return (p.totalST || 0) > 0 || p.itens.some((i) => (i.stItem || 0) > 0);
 }

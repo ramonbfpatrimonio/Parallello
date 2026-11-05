@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { parseNumero, paraCampo } from '../fmt.js';
 import Icone from '../components/Icone.jsx';
 import SeletorConexao from '../components/SeletorConexao.jsx';
+import TabelaArrastavel from '../components/TabelaArrastavel.jsx';
 import Modal, { Confirmar } from '../components/Modal.jsx';
 import { useToast } from '../components/Toast.jsx';
 
@@ -233,7 +234,7 @@ export default function Configuracao({ conexoes, conexaoId, setConexaoId, podeGr
       )}
 
       {carregadoPara ? (
-        <div className="cartao sem-padding">
+        <TabelaArrastavel>
           <table className="tabela editavel">
             <thead>
               <tr>
@@ -303,7 +304,7 @@ export default function Configuracao({ conexoes, conexaoId, setConexaoId, podeGr
               </option>
             ))}
           </datalist>
-        </div>
+        </TabelaArrastavel>
       ) : (
         <div className="vazio-grande">
           <Icone nome="config" tamanho={40} />

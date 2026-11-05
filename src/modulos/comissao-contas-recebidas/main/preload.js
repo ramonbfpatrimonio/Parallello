@@ -9,7 +9,8 @@ const CANAIS = new Set([
   'exportar:excel', 'exportar:pdf',
   'config:obter', 'config:definir',
   'backup:info', 'backup:exportar', 'backup:restaurar',
-  'sessao:info'
+  'sessao:info',
+  'sistema:liberar', 'regras:obter', 'regras:salvar', 'exportar:imprimir'
 ]);
 
 contextBridge.exposeInMainWorld('api', {

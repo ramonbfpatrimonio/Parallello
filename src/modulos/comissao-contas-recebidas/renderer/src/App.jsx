@@ -6,12 +6,15 @@ import Relatorio from './pages/Relatorio.jsx';
 import Configuracao from './pages/Configuracao.jsx';
 import Fechamentos from './pages/Fechamentos.jsx';
 import Backup from './pages/Backup.jsx';
+import RegrasCalculo from './pages/RegrasCalculo.jsx';
+import SenhaSistema from './components/SenhaSistema.jsx';
 
 const MENU = [
   { id: 'relatorio', rotulo: 'Relatório de Comissões', icone: 'relatorio', grupo: 'Comissões' },
   { id: 'configuracao', rotulo: 'Configurar Comissões', icone: 'config', grupo: 'Comissões' },
   { id: 'fechamentos', rotulo: 'Fechamentos', icone: 'fechamentos', grupo: 'Comissões' },
-  { id: 'backup', rotulo: 'Backup', icone: 'backup', grupo: 'Sistema' }
+  { id: 'regras', rotulo: 'Regras de cálculo', icone: 'regras', grupo: 'Sistema', sistema: true },
+  { id: 'backup', rotulo: 'Backup', icone: 'backup', grupo: 'Sistema', sistema: true }
 ];
 
 export default function App() {
@@ -20,6 +23,28 @@ export default function App() {
   const [conexaoRel, setConexaoRel] = useState(null);
   const [conexaoCfg, setConexaoCfg] = useState(null);
   const [ehAdmin, setEhAdmin] = useState(false);
+
+  // Área de sistema escondida: Ctrl+Shift+B pede a senha master do Parallello; de novo, esconde
+  const [sistemaLiberado, setSistemaLiberado] = useState(false);
+  const [pedirSenha, setPedirSenha] = useState(false);
+
+  useEffect(() => {
+    const atalho = (e) => {
+      if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyB') {
+        e.preventDefault();
+        if (sistemaLiberado) {
+          setSistemaLiberado(false);
+          setPagina((p) => (MENU.find((m) => m.id === p)?.sistema ? 'relatorio' : p));
+        } else {
+          setPedirSenha(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', atalho);
+    return () => window.removeEventListener('keydown', atalho);
+  }, [sistemaLiberado]);
+
+  const menu = MENU.filter((m) => !m.sistema || sistemaLiberado);
 
   useEffect(() => {
     api.sessao().then((s) => setEhAdmin(!!s.ehAdmin)).catch(() => {});
@@ -48,7 +73,7 @@ export default function App() {
   return (
     <ToastProvider>
       <div className="app">
-        <Sidebar itens={MENU} ativo={pagina} aoSelecionar={setPagina} />
+        <Sidebar itens={menu} ativo={pagina} aoSelecionar={setPagina} />
         <main className="conteudo">
           <div style={ver('relatorio')}>
             <Relatorio conexoes={conexoes} conexaoId={conexaoRel} setConexaoId={setConexaoRel} />
@@ -59,11 +84,28 @@ export default function App() {
           <div style={ver('fechamentos')}>
             <Fechamentos visivel={pagina === 'fechamentos'} />
           </div>
-          <div style={ver('backup')}>
-            <Backup visivel={pagina === 'backup'} />
-          </div>
+          {sistemaLiberado && (
+            <>
+              <div style={ver('regras')}>
+                <RegrasCalculo visivel={pagina === 'regras'} />
+              </div>
+              <div style={ver('backup')}>
+                <Backup visivel={pagina === 'backup'} />
+              </div>
+            </>
+          )}
         </main>
       </div>
+      {pedirSenha && (
+        <SenhaSistema
+          aoFechar={() => setPedirSenha(false)}
+          aoLiberar={() => {
+            setPedirSenha(false);
+            setSistemaLiberado(true);
+            setPagina('regras');
+          }}
+        />
+      )}
     </ToastProvider>
   );
 }

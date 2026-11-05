@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { dataBR, dataHoraBR, moeda } from '../fmt.js';
 import Icone from '../components/Icone.jsx';
 import ResultadoView from '../components/ResultadoView.jsx';
+import TabelaArrastavel from '../components/TabelaArrastavel.jsx';
 import { Confirmar } from '../components/Modal.jsx';
 import { useToast } from '../components/Toast.jsx';
 
@@ -32,7 +33,7 @@ export default function Fechamentos({ visivel }) {
     try {
       const f = aberto && aberto.id === id ? aberto : await api.fechamentos.obter(id);
       const arq = await api.exportar[tipo](f.dados, { mostrarItens });
-      if (arq) avisar('Arquivo salvo em ' + arq);
+      if (arq && tipo !== 'imprimir') avisar('Arquivo salvo em ' + arq);
     } catch (e) {
       avisar(e.message, 'erro');
     }
@@ -61,6 +62,9 @@ export default function Fechamentos({ visivel }) {
             <button className="btn" onClick={() => exportar('pdf', aberto.id)}>
               <Icone nome="pdf" /> PDF
             </button>
+            <button className="btn" onClick={() => exportar('imprimir', aberto.id)}>
+              <Icone nome="imprimir" /> Imprimir
+            </button>
           </div>
         </header>
         <ResultadoView resultado={aberto.dados} mostrarItens={mostrarItens} aoMudarMostrarItens={setMostrarItens} />
@@ -78,7 +82,7 @@ export default function Fechamentos({ visivel }) {
       </header>
 
       {lista.length ? (
-        <div className="cartao sem-padding">
+        <TabelaArrastavel>
           <table className="tabela">
             <thead>
               <tr>
@@ -91,7 +95,7 @@ export default function Fechamentos({ visivel }) {
                 <th className="n">Recebido</th>
                 <th className="n">Comissão</th>
                 <th>Observação</th>
-                <th style={{ width: 150 }} />
+                <th style={{ width: 186 }} />
               </tr>
             </thead>
             <tbody>
@@ -119,6 +123,9 @@ export default function Fechamentos({ visivel }) {
                       <button className="btn-icone" title="PDF" onClick={() => exportar('pdf', f.id)}>
                         <Icone nome="pdf" tamanho={16} />
                       </button>
+                      <button className="btn-icone" title="Imprimir" onClick={() => exportar('imprimir', f.id)}>
+                        <Icone nome="imprimir" tamanho={16} />
+                      </button>
                       <button className="btn-icone perigo" title="Excluir" onClick={() => setExcluir(f)}>
                         <Icone nome="lixo" tamanho={16} />
                       </button>
@@ -128,7 +135,7 @@ export default function Fechamentos({ visivel }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TabelaArrastavel>
       ) : (
         <div className="vazio-grande">
           <Icone nome="fechamentos" tamanho={40} />

@@ -3,6 +3,8 @@
 appId: br.com.ramon.parallello.instalador
 productName: Instalador do Parallello
 electronVersion: 36.9.5
+# Electron já instalado em node_modules (não baixa do GitHub: evita erro 504/timeout)
+electronDist: node_modules/electron/dist
 directories:
   app: out-instalador
   output: dist-instalador

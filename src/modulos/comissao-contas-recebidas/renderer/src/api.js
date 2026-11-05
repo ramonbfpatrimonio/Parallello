@@ -6,6 +6,11 @@ async function call(canal, ...args) {
 }
 
 export const api = {
+  liberarSistema: (senha) => call('sistema:liberar', senha),
+  regras: {
+    obter: () => call('regras:obter'),
+    salvar: (r) => call('regras:salvar', r)
+  },
   conexoes: {
     listar: () => call('conexoes:listar'),
     salvar: (c) => call('conexoes:salvar', c),
@@ -30,7 +35,8 @@ export const api = {
   },
   exportar: {
     excel: (resultado, opts) => call('exportar:excel', resultado, opts),
-    pdf: (resultado, opts) => call('exportar:pdf', resultado, opts)
+    pdf: (resultado, opts) => call('exportar:pdf', resultado, opts),
+    imprimir: (resultado, opts) => call('exportar:imprimir', resultado, opts)
   },
   config: {
     obter: (chave, padrao) => call('config:obter', chave, padrao),
