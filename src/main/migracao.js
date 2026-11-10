@@ -95,6 +95,29 @@ const REGRAS = {
     temDados: (o) => fs.existsSync(path.join(o, 'comissao-local.sqlite')),
     copiar: (o, d) => copiar(path.join(o, 'comissao-local.sqlite'), path.join(d, 'comissao-local.sqlite')),
   },
+  'analise-credito': {
+    // regras do score e decisões; as conexões passam a ser as do Parallello
+    origens: (ad) => [path.join(ad, 'Analise de Credito'), path.join(ad, 'Análise de Crédito'), path.join(ad, 'analise-credito')],
+    temDados: (o) => fs.existsSync(path.join(o, 'dados')),
+    copiar: (o, d) => {
+      for (const f of ['regras.json', 'decisoes.json']) {
+        if (fs.existsSync(path.join(o, 'dados', f))) copiar(path.join(o, 'dados', f), path.join(d, 'dados', f));
+      }
+    },
+  },
+  'custo-producao': {
+    // preferências e histórico; as conexões passam a ser as do Parallello
+    origens: (ad) => [path.join(ad, 'Custo de Produção'), path.join(ad, 'Custo de Producao'), path.join(ad, 'custo-producao')],
+    temDados: (o) => fs.existsSync(path.join(o, 'config.json')) || fs.existsSync(path.join(o, 'historico')),
+    copiar: (o, d) => {
+      if (fs.existsSync(path.join(o, 'historico'))) copiar(path.join(o, 'historico'), path.join(d, 'historico'));
+      const cfg = (() => { try { return JSON.parse(fs.readFileSync(path.join(o, 'config.json'), 'utf8')); } catch { return null; } })();
+      if (cfg && !fs.existsSync(path.join(d, 'config.json'))) {
+        fs.mkdirSync(d, { recursive: true });
+        fs.writeFileSync(path.join(d, 'config.json'), JSON.stringify({ versao: 3, ativaId: '', ajustes: {}, preferencias: { ...(cfg.preferencias || {}), colunaData: undefined } }, null, 2));
+      }
+    },
+  },
   'pesquisa-relatorios': {
     origens: (ad) => [path.join(ad, 'PesquisaRelatorios')],
     temDados: (o) => fs.existsSync(path.join(o, 'dados')),

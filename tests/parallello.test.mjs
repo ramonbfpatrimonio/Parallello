@@ -142,6 +142,31 @@ test('Comissão por Contas Recebidas: copia só o arquivo de dados (sem o cache 
   assert.ok(!fs.existsSync(path.join(nova, 'Cache')))
 })
 
+test('Análise de Crédito e Custo Produto/Produção: copiam dados e histórico, nunca as conexões antigas', () => {
+  const t = pastaTemp()
+  const ad = path.join(t, 'appdata')
+  const ac = path.join(ad, 'Analise de Credito', 'dados')
+  fs.mkdirSync(ac, { recursive: true })
+  fs.writeFileSync(path.join(ac, 'regras.json'), '{"r":1}')
+  fs.writeFileSync(path.join(ac, 'decisoes.json'), '[]')
+  fs.writeFileSync(path.join(ac, 'conexoes.json'), '{"senha":"x"}')
+  const novaAc = path.join(t, 'modulos', 'analise-credito')
+  assert.ok(migrarSePreciso('analise-credito', novaAc, ad))
+  assert.equal(fs.readFileSync(path.join(novaAc, 'dados', 'regras.json'), 'utf8'), '{"r":1}')
+  assert.ok(!fs.existsSync(path.join(novaAc, 'dados', 'conexoes.json')))
+
+  const cp = path.join(ad, 'Custo de Produção')
+  fs.mkdirSync(path.join(cp, 'historico'), { recursive: true })
+  fs.writeFileSync(path.join(cp, 'historico', 'indice.json'), '[]')
+  fs.writeFileSync(path.join(cp, 'config.json'), JSON.stringify({ conexoes: [{ senha: 'enc:x' }], preferencias: { casasCustoUnit: 3 } }))
+  const novaCp = path.join(t, 'modulos', 'custo-producao')
+  assert.ok(migrarSePreciso('custo-producao', novaCp, ad))
+  const cfg = JSON.parse(fs.readFileSync(path.join(novaCp, 'config.json'), 'utf8'))
+  assert.equal(cfg.preferencias.casasCustoUnit, 3)
+  assert.equal(cfg.conexoes, undefined, 'não leva conexões nem senhas antigas')
+  assert.ok(fs.existsSync(path.join(novaCp, 'historico', 'indice.json')))
+})
+
 test('sem programa antigo: abre vazio e marca como verificado', () => {
   const t = pastaTemp()
   const nova = path.join(t, 'modulos', 'acompanhamento')

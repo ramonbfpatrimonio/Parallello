@@ -130,13 +130,14 @@ function iniciarModulo(id) {
 }
 
 // ---------------- tema claro/escuro nas telas dos sistemas ----------------
-// A Pesquisa de Relatórios já tem tema escuro próprio: só trocamos o atributo dela. Os outros sistemas ganham o
+// A Pesquisa de Relatórios e o Custo Produto/Produção já têm tema escuro próprio: só trocamos o atributo deles. Os outros ganham o
 // escuro por um filtro de cor (inverte claro/escuro mantendo os tons). O que já era escuro (menu lateral, botões,
 // cabeçalho de tabela, avisos) e as imagens voltam ao normal, para não ficarem claros no tema escuro.
-const TEMA_NATIVO = new Set(['pesquisa-relatorios']);
+const TEMA_NATIVO = new Set(['pesquisa-relatorios', 'custo-producao']);
 // Dentro do Parallello o preloader é o do Parallello: os de cada sistema (e o interruptor de tema próprio) somem.
 const CSS_FIXO = {
   'pesquisa-relatorios': '#preloader, #tema-app { display: none !important; }',
+  'custo-producao': '.lateral-acoes button[title^="Usar tema"] { display: none !important; }',
 };
 const CSS_ESCURO = `
 html { filter: invert(0.9) hue-rotate(180deg) !important; background: #fff !important; min-height: 100%; }

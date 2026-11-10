@@ -52,4 +52,20 @@ export const CATALOGO = [
     fundo: '#f3f5f9',
     pagina: 'modulos/comissao-contas-recebidas/renderer/index.html',
   },
+  {
+    id: 'analise-credito',
+    nome: 'Análise de Crédito de Cliente',
+    descricao: 'Score, limite e prazo sugeridos por cliente, com histórico de decisões.',
+    cor: '#f59e0b',
+    fundo: '#f4f6fa',
+    pagina: 'modulos/analise-credito/renderer/index.html',
+  },
+  {
+    id: 'custo-producao',
+    nome: 'Custo Produto/Produção',
+    descricao: 'Custo das ordens de produção a partir dos insumos, com custo por kg e histórico.',
+    cor: '#d99a1e',
+    fundo: '#f3f5f4',
+    pagina: 'modulos/custo-producao/renderer/index.html',
+  },
 ];

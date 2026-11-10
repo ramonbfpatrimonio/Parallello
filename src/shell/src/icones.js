@@ -5,6 +5,8 @@ import acompanhamento from '../../modulos/acompanhamento/icone.png'
 import pesquisaRelatorios from '../../modulos/pesquisa-relatorios/icone.png'
 import indicadorLogistico from '../../modulos/indicador-logistico/icone.png'
 import comissao from '../../modulos/comissao-contas-recebidas/icone.png'
+import analiseCredito from '../../modulos/analise-credito/icone.png'
+import custoProducao from '../../modulos/custo-producao/icone.png'
 
 export const ICONES = {
   'gerar-pre-venda': gerarPreVenda,
@@ -12,5 +14,7 @@ export const ICONES = {
   acompanhamento,
   'pesquisa-relatorios': pesquisaRelatorios,
   'indicador-logistico': indicadorLogistico,
-  'comissao-contas-recebidas': comissao
+  'comissao-contas-recebidas': comissao,
+  'analise-credito': analiseCredito,
+  'custo-producao': custoProducao
 }
