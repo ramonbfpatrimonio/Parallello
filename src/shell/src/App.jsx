@@ -122,6 +122,8 @@ export function App() {
         <Inicio estado={estado} abrir={abrir} irPara={irPara} />
       )}
 
+      {estado.atual && estado.carregando?.includes(estado.atual) && <PreloaderModulo id={estado.atual} />}
+
       {semAcesso && (
         <Modal titulo="Sem acesso" aoFechar={() => setSemAcesso(null)} rodape={<button className="botao primario" onClick={() => setSemAcesso(null)} autoFocus>Entendi</button>}>
           <p>{semAcesso}</p>
@@ -289,6 +291,17 @@ function Usuario({ sessao }) {
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Preloader ao entrar num sistema: a marca do Parallello gira rápido e vai parando. */
+function PreloaderModulo({ id }) {
+  const m = CATALOGO.find((x) => x.id === id)
+  return (
+    <div className="preloader-modulo" role="status" aria-live="polite">
+      <img src={marca} alt="" className="preloader-modulo-marca" />
+      <span className="preloader-modulo-nome">Abrindo {m?.nome ?? 'o sistema'}…</span>
     </div>
   )
 }

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('parallello', {
   mostrar: (id) => chamar('mostrar', id),
   fechar: (id) => chamar('fechar', id),
   cobrir: (sim) => chamar('cobrir', sim),
+  definirTema: (tema) => chamar('tema', tema),
   abrirPastaDados: () => chamar('abrirPastaDados'),
   entrar: (usuario, senha) => chamar('entrar', usuario, senha),
   sair: () => chamar('sair'),

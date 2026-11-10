@@ -20,6 +20,8 @@ export const lerTema = () => ler('parallello.tema', 'claro', TEMAS)
 export function aplicarTema(tema) {
   document.documentElement.dataset.tema = tema
   gravar('parallello.tema', tema)
+  // o mesmo tema nas telas de todos os sistemas
+  void window.parallello?.definirTema?.(tema)?.catch?.(() => {})
 }
 
 export const VISOES = ['grande', 'medio', 'lista']

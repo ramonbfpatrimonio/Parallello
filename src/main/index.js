@@ -39,6 +39,8 @@ const abas = new Map(); // id -> WebContentsView (tela aberta)
 let ordemAbas = []; // ids na ordem em que foram abertos
 let atual = null; // id do sistema em primeiro plano; null = tela inicial
 let cobrindo = false; // a tela do Parallello mostra uma janela por cima (login, aviso, senha master)
+const carregando = new Set(); // sistemas abrindo: a tela do Parallello mostra o preloader até terminar
+let tema = 'claro'; // tema do Parallello, aplicado também nas telas dos sistemas
 let atualizacao = null;
 let sessao = null;
 
@@ -50,6 +52,7 @@ function estado() {
     versao: app.getVersion(),
     atual,
     abas: ordemAbas.slice(),
+    carregando: [...carregando],
     erros: Object.fromEntries([...ativos].filter(([, a]) => a.erro).map(([id, a]) => [id, a.erro])),
     atualizacao: atualizacao ? atualizacao.estado() : { tipo: 'parado' },
     sessao: sessao ? sessao.publico() : { logado: false },
@@ -126,6 +129,113 @@ function iniciarModulo(id) {
   return registro;
 }
 
+// ---------------- tema claro/escuro nas telas dos sistemas ----------------
+// A Pesquisa de Relatórios já tem tema escuro próprio: só trocamos o atributo dela. Os outros sistemas ganham o
+// escuro por um filtro de cor (inverte claro/escuro mantendo os tons). O que já era escuro (menu lateral, botões,
+// cabeçalho de tabela, avisos) e as imagens voltam ao normal, para não ficarem claros no tema escuro.
+const TEMA_NATIVO = new Set(['pesquisa-relatorios']);
+// Dentro do Parallello o preloader é o do Parallello: os de cada sistema (e o interruptor de tema próprio) somem.
+const CSS_FIXO = {
+  'pesquisa-relatorios': '#preloader, #tema-app { display: none !important; }',
+};
+const CSS_ESCURO = `
+html { filter: invert(0.9) hue-rotate(180deg) !important; background: #fff !important; min-height: 100%; }
+img, video, canvas, picture, iframe, embed, object, .pl-sem-inverter { filter: invert(1) hue-rotate(180deg) !important; }
+.pl-sem-inverter img, .pl-sem-inverter video, .pl-sem-inverter canvas, .pl-sem-inverter picture, .pl-sem-inverter .pl-sem-inverter { filter: none !important; }
+`;
+// Marca os elementos de fundo escuro (para não inverterem) e acompanha o que a tela desenhar depois.
+const JS_MARCAR_ESCUROS = `(() => {
+  if (window.__plMarcar) return window.__plMarcar(true);
+  const luz = (cor) => {
+    const m = /rgba?\\(([^)]+)\\)/.exec(cor);
+    if (!m) return null;
+    const [r, g, b, a = 1] = m[1].split(',').map(Number);
+    if (a < 0.6) return null;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  };
+  const PULAR = new Set(['TD', 'TR', 'TBODY', 'SPAN', 'B', 'I', 'STRONG', 'EM', 'OPTION', 'PATH', 'svg', 'path', 'G', 'g']);
+  let ligado = false, agendado = 0;
+  const marcar = () => {
+    agendado = 0;
+    if (!ligado) return;
+    for (const el of document.querySelectorAll('body *')) {
+      if (PULAR.has(el.tagName) || el.closest('.pl-sem-inverter') !== null && !el.classList.contains('pl-sem-inverter')) continue;
+      const cs = getComputedStyle(el);
+      let l = luz(cs.backgroundColor);
+      if (l === null && cs.backgroundImage.includes('gradient')) l = luz(cs.backgroundImage); // menu lateral em degradê
+      if (l !== null && l < 0.38) el.classList.add('pl-sem-inverter');
+      else if (el.classList.contains('pl-sem-inverter') && (l === null || l >= 0.38)) el.classList.remove('pl-sem-inverter');
+    }
+  };
+  const obs = new MutationObserver(() => { if (ligado && !agendado) agendado = setTimeout(marcar, 200); });
+  window.__plMarcar = (sim) => {
+    ligado = sim;
+    if (sim) { obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] }); marcar(); }
+    else { obs.disconnect(); document.querySelectorAll('.pl-sem-inverter').forEach((e) => e.classList.remove('pl-sem-inverter')); }
+  };
+  window.__plMarcar(true);
+})()`;
+const cssTema = new Map(); // webContents.id -> chave do insertCSS do tema
+
+async function aplicarTemaNaTela(id, view) {
+  const wc = view.webContents;
+  if (wc.isDestroyed()) return;
+  const escuro = tema === 'escuro';
+  view.setBackgroundColor(escuro ? '#1a1d21' : infoAba(id)?.fundo ?? '#ffffff');
+  try {
+    const anterior = cssTema.get(wc.id);
+    if (anterior) {
+      cssTema.delete(wc.id);
+      await wc.removeInsertedCSS(anterior);
+    }
+    if (TEMA_NATIVO.has(id)) {
+      await wc.executeJavaScript(`(() => {
+        const d = document.documentElement;
+        window.__temaParallello = ${JSON.stringify(tema)};
+        d.setAttribute('data-tema', window.__temaParallello);
+        if (!window.__observaTema) {
+          window.__observaTema = new MutationObserver(() => {
+            if (d.getAttribute('data-tema') !== window.__temaParallello) d.setAttribute('data-tema', window.__temaParallello);
+          });
+          window.__observaTema.observe(d, { attributes: true, attributeFilter: ['data-tema'] });
+        }
+      })()`);
+    } else if (escuro) {
+      cssTema.set(wc.id, await wc.insertCSS(CSS_ESCURO));
+      await wc.executeJavaScript(JS_MARCAR_ESCUROS);
+    } else {
+      await wc.executeJavaScript('window.__plMarcar && window.__plMarcar(false)');
+    }
+  } catch (e) {
+    if (!wc.isDestroyed()) console.warn(`[parallello] tema em ${id}:`, e.message);
+  }
+}
+function definirTema(novo) {
+  tema = novo === 'escuro' ? 'escuro' : 'claro';
+  if (janela && !janela.isDestroyed()) janela.setBackgroundColor(tema === 'escuro' ? '#0f161d' : '#e9edf0');
+  for (const [id, view] of abas) void aplicarTemaNaTela(id, view);
+  return tema;
+}
+
+/** Mostra o preloader até a tela carregar (e a animação girar até o fim). */
+const TEMPO_MINIMO_PRELOADER = 1500;
+function acompanharCarga(id, view) {
+  carregando.add(id);
+  const wc = view.webContents;
+  const carregou = new Promise((ok) => {
+    wc.once('did-finish-load', ok);
+    wc.once('did-fail-load', ok);
+    setTimeout(ok, 15000); // nunca prende a tela
+  });
+  const minimo = new Promise((ok) => setTimeout(ok, TEMPO_MINIMO_PRELOADER));
+  void Promise.all([carregou, minimo]).then(() => {
+    if (!carregando.delete(id)) return;
+    posicionar();
+    if (atual === id && !cobrindo && !wc.isDestroyed()) wc.focus();
+    avisarMudanca();
+  });
+}
+
 // ---------------- telas (abas) ----------------
 function criarAba(info) {
   const dono = info.modulo ?? info.id;
@@ -137,9 +247,16 @@ function criarAba(info) {
       sandbox: true,
     },
   });
-  view.setBackgroundColor(info.fundo);
+  view.setBackgroundColor(tema === 'escuro' ? '#1a1d21' : info.fundo);
   const wc = view.webContents;
   vincularTela(wc.id, dono);
+  // tema do Parallello: reaplicado a cada carga da página (o CSS injetado não sobrevive a recarregar)
+  wc.on('dom-ready', () => {
+    cssTema.delete(wc.id);
+    if (CSS_FIXO[info.id]) void wc.insertCSS(CSS_FIXO[info.id]).catch(() => {});
+    void aplicarTemaNaTela(info.id, view);
+  });
+  acompanharCarga(info.id, view);
   wc.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
@@ -172,14 +289,14 @@ function posicionar() {
   const [largura, altura] = janela.getContentSize();
   for (const [id, view] of abas) {
     view.setBounds({ x: 0, y: ALTURA_BARRA, width: largura, height: Math.max(0, altura - ALTURA_BARRA) });
-    view.setVisible(id === atual && !cobrindo);
+    view.setVisible(id === atual && !cobrindo && !carregando.has(id));
   }
 }
 
 function mostrar(id) {
   atual = id && abas.has(id) ? id : null;
   posicionar();
-  if (atual && !cobrindo) abas.get(atual)?.webContents.focus();
+  if (atual && !cobrindo && !carregando.has(atual)) abas.get(atual)?.webContents.focus();
   else janela.webContents.focus();
   const m = infoAba(atual);
   janela.setTitle(m ? `${m.nome} — Parallello` : 'Parallello');
@@ -221,6 +338,8 @@ function fechar(id) {
   const i = ordemAbas.indexOf(id);
   ordemAbas = ordemAbas.filter((x) => x !== id);
   abas.delete(id);
+  carregando.delete(id);
+  cssTema.delete(view.webContents.id);
   desvincularTela(view.webContents.id);
   janela.contentView.removeChildView(view);
   view.webContents.close();
@@ -314,6 +433,7 @@ canal('cobrir', (sim) => {
   posicionar();
   if (!cobrindo && atual) abas.get(atual)?.webContents.focus();
 });
+canal('tema', (novo) => definirTema(novo));
 canal('atualizacao:verificar', () => atualizacao.verificar());
 canal('atualizacao:baixar', () => atualizacao.baixar());
 canal('atualizacao:instalar', () => atualizacao.instalar());

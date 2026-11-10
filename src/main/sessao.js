@@ -176,53 +176,75 @@ export function criarSessao({ pasta, catalogo, aoMudar }) {
   }
 
   // ------------------------------------------------------------ entrar / sair
+  // Cada login ganha um número: o que termina em segundo plano só vale se a pessoa ainda estiver nele.
+  let geracao = 0
+  const aindaNela = (g) => g === geracao && s.logado
+
+  async function conectarMasterNaNuvem(senha, g) {
+    try {
+      await nuvem.entrarMaster(senha)
+      const p = await nuvem.meuPerfil()
+      if (!aindaNela(g)) return
+      if (p?.papel !== 'super_admin' || !p.ativo) {
+        await nuvem.sair()
+        return
+      }
+      s.modo = 'master-nuvem'
+      s.internet = true
+      s.perfil = { ...s.perfil, id: p.id, email: p.email ?? '' }
+      await carregarEmpresas()
+      if (!aindaNela(g)) return
+      definirEmpresaInicial()
+      mudou()
+      await sincronizarConexoes()
+      if (!aindaNela(g)) return
+      void nuvem.registrarEvento({ acao: 'entrou', entidade: 'sessão', descricao: 'Entrou no Parallello com a senha master' }).catch(() => {})
+      mudou()
+    } catch (e) {
+      // sem internet ou função não publicada: continua no modo master só deste computador
+      console.warn('[parallello] master sem nuvem:', e.message)
+    }
+  }
+
+  /** Empresas e conexões da nuvem depois que a pessoa já entrou (não segura a tela de login). */
+  async function completarEmSegundoPlano(g) {
+    try {
+      await carregarEmpresas()
+      if (!aindaNela(g)) return
+      definirEmpresaInicial()
+      mudou()
+      await sincronizarConexoes()
+      if (aindaNela(g)) mudou()
+    } catch (e) {
+      console.warn('[parallello] dados da nuvem depois do login:', e.message)
+    }
+  }
+
   async function entrar(usuario, senha) {
     const login = normalizarLogin(usuario)
     if (!login) throw new Error('Informe o usuário.')
     if (!senha) throw new Error('Informe a senha.')
     await sair(false)
 
-    // -------- master
+    // -------- master: entra na hora (só deste computador) e liga a nuvem em segundo plano
     if (ehUsuarioMaster(login)) {
       if (!ehSenhaMaster(senha)) throw new Error('Usuário ou senha incorretos.')
-      let modo = 'master'
-      let perfilNuvem = null
-      try {
-        await nuvem.entrarMaster(senha)
-        perfilNuvem = await nuvem.meuPerfil()
-        if (perfilNuvem?.papel === 'super_admin' && perfilNuvem.ativo) modo = 'master-nuvem'
-        else await nuvem.sair()
-      } catch (e) {
-        // sem internet ou função não publicada: modo master só deste computador
-        console.warn('[parallello] master sem nuvem:', e.message)
-      }
       s = {
         ...vazio(),
         logado: true,
-        modo,
-        perfil: {
-          id: perfilNuvem?.id ?? 'master',
-          nome: 'Administrador',
-          usuario: 'administrador',
-          email: perfilNuvem?.email ?? '',
-          papel: 'super_admin',
-          ativo: true,
-          empresa_id: null,
-          empresa_nome: '',
-          empresa_ativa: true,
-        },
+        modo: 'master',
+        perfil: { id: 'master', nome: 'Administrador', usuario: 'administrador', email: '', papel: 'super_admin', ativo: true, empresa_id: null, empresa_nome: '', empresa_ativa: true },
         permitidos: idsModulos(),
         modulos: modulosDoMaster(),
-        internet: modo === 'master-nuvem',
+        internet: false,
         diaMaster: dataMaster(),
         configLiberada: true, // entrou como administrador: a configuração já abre junto
       }
-      await carregarEmpresas()
       definirEmpresaInicial()
-      await sincronizarConexoes()
       salvarLocal({ ultimoUsuario: 'administrador' })
-      if (modo === 'master-nuvem') void nuvem.registrarEvento({ acao: 'entrou', entidade: 'sessão', descricao: 'Entrou no Parallello com a senha master' }).catch(() => {})
+      const sessaoAtual = ++geracao
       mudou()
+      void conectarMasterNaNuvem(senha, sessaoAtual)
       return publico()
     }
 
@@ -249,12 +271,13 @@ export function criarSessao({ pasta, catalogo, aoMudar }) {
     }
     const permitidos = calcularPermitidos(perfil)
     s = { ...vazio(), logado: true, modo, perfil, permitidos, modulos: calcularVisiveis(perfil.modulos_visiveis), internet: modo === 'nuvem', licenca: estadoLicenca(perfil) }
-    await carregarEmpresas()
     definirEmpresaInicial()
-    await sincronizarConexoes()
     salvarLocal({ ultimoUsuario: login })
+    const sessaoAtual = ++geracao
     if (modo === 'nuvem') void nuvem.registrarEvento({ acao: 'entrou', entidade: 'sessão', descricao: 'Entrou no Parallello' }).catch(() => {})
     mudou()
+    // empresas (super administrador) e conexões da empresa chegam logo depois, sem segurar o login
+    if (modo === 'nuvem') void completarEmSegundoPlano(sessaoAtual)
     return publico()
   }
 
@@ -263,6 +286,7 @@ export function criarSessao({ pasta, catalogo, aoMudar }) {
       await nuvem.registrarEvento({ acao: 'saiu', entidade: 'sessão', descricao: 'Saiu do Parallello' }).catch(() => {})
       await nuvem.sair()
     }
+    geracao++
     s = vazio()
     if (avisar) mudou()
   }

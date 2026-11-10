@@ -10,12 +10,23 @@ import { URL_NUVEM, CHAVE_NUVEM, emailDoLogin } from '../compartilhado/nuvem-con
 const MSG_SEM_INTERNET = 'Sem conexão com a internet.'
 const estacao = os.hostname().normalize('NFD').replace(/[^\x20-\x7E]/g, '').slice(0, 60)
 
+// Sem internet (ou rede ruim) o fetch pode ficar pendurado por muito tempo: cada chamada tem um limite.
+const LIMITE_MS = 15000
+function fetchComLimite(url, opcoes = {}) {
+  const limite = AbortSignal.timeout(LIMITE_MS)
+  const signal = opcoes.signal ? AbortSignal.any([opcoes.signal, limite]) : limite
+  return fetch(url, { ...opcoes, signal }).catch((e) => {
+    if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw new Error(MSG_SEM_INTERNET)
+    throw e
+  })
+}
+
 let cliente = null
 function sb() {
   if (!cliente) {
     cliente = createClient(URL_NUVEM, CHAVE_NUVEM, {
       auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false },
-      global: { headers: { 'x-estacao': estacao } },
+      global: { headers: { 'x-estacao': estacao }, fetch: fetchComLimite },
     })
   }
   return cliente
@@ -141,15 +152,17 @@ function paraPerfil(p) {
 export async function meuPerfil() {
   const id = await usuarioId()
   if (!id) return null
-  const p = await ou(sb().from('perfis').select(COLUNAS_PERFIL).eq('id', id).maybeSingle())
+  // perfil e licença ao mesmo tempo (uma ida à nuvem a menos no login)
+  const [p, lic] = await Promise.all([
+    ou(sb().from('perfis').select(COLUNAS_PERFIL).eq('id', id).maybeSingle()),
+    licenca().catch((e) => {
+      if (ehErroDeRede(e)) throw e
+      return null // super administrador, sem empresa, ou sem a migração 004: entra sem cobrança
+    }),
+  ])
   if (!p) return null
   const perfil = paraPerfil(p)
-  if (perfil.papel !== 'super_admin' && perfil.empresa_id) {
-    perfil.licenca = await licenca().catch((e) => {
-      if (ehErroDeRede(e)) throw e
-      return null // sem a migração 004: entra sem cobrança
-    })
-  }
+  if (perfil.papel !== 'super_admin' && perfil.empresa_id) perfil.licenca = lic
   return perfil
 }
 
