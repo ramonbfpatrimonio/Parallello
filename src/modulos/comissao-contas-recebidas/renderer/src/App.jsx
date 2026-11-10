@@ -6,14 +6,14 @@ import Relatorio from './pages/Relatorio.jsx';
 import Configuracao from './pages/Configuracao.jsx';
 import Fechamentos from './pages/Fechamentos.jsx';
 import Backup from './pages/Backup.jsx';
-import RegrasCalculo from './pages/RegrasCalculo.jsx';
+import Configuracoes from './pages/Configuracoes.jsx';
 import SenhaSistema from './components/SenhaSistema.jsx';
 
 const MENU = [
   { id: 'relatorio', rotulo: 'Relatório de Comissões', icone: 'relatorio', grupo: 'Comissões' },
   { id: 'configuracao', rotulo: 'Configurar Comissões', icone: 'config', grupo: 'Comissões' },
   { id: 'fechamentos', rotulo: 'Fechamentos', icone: 'fechamentos', grupo: 'Comissões' },
-  { id: 'regras', rotulo: 'Regras de cálculo', icone: 'regras', grupo: 'Sistema', sistema: true },
+  { id: 'configuracoes', rotulo: 'Configurações', icone: 'engrenagem', grupo: 'Sistema', sistema: true },
   { id: 'backup', rotulo: 'Backup', icone: 'backup', grupo: 'Sistema', sistema: true }
 ];
 
@@ -86,8 +86,8 @@ export default function App() {
           </div>
           {sistemaLiberado && (
             <>
-              <div style={ver('regras')}>
-                <RegrasCalculo visivel={pagina === 'regras'} />
+              <div style={ver('configuracoes')}>
+                <Configuracoes visivel={pagina === 'configuracoes'} />
               </div>
               <div style={ver('backup')}>
                 <Backup visivel={pagina === 'backup'} />
@@ -102,7 +102,7 @@ export default function App() {
           aoLiberar={() => {
             setPedirSenha(false);
             setSistemaLiberado(true);
-            setPagina('regras');
+            setPagina('configuracoes');
           }}
         />
       )}

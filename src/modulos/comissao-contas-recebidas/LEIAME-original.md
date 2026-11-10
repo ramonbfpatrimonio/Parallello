@@ -10,12 +10,12 @@ Consulta o ERP (SQL Server) e guarda tudo o que é do próprio sistema **localme
 | Configurar Comissões | % por fabricante (Cidade 001, Outras, Tel. Op., Desconto) por UF — **grava no ERP** (`CidadesComissoes`) | aba `Config_Comissoes` + Módulo3 |
 | Fechamentos | Resultados salvos localmente para consultar/reimprimir | (novo) |
 | Conexões | Bancos SQL Server (COMERCIO, INDUSTRIA…) com senha criptografada | conexões fixas no VBA |
-| Regras de cálculo | Liga/desliga **somar ICMS ST** (Total dos pedidos, valor dos itens e base da comissão). Desligada, o ST também sai do recebido de forma proporcional: parcela × (ST do pedido ÷ total do pedido com ST). Devoluções sempre descontadas | (novo) |
+| Configurações | Chaves **Total pedido com ST** (padrão: sem) e **Recebido com ST** (padrão: com; desligada tira o ST proporcional da parcela) e **Total pedido somado por baixa** (padrão: ligada, como a planilha) | (novo) |
 | Backup | Exporta/restaura o arquivo de dados local | (novo) |
 
 O menu lateral abre ao passar o mouse e recolhe ao tirar.
 
-**Área de sistema (Conexões, Regras de cálculo e Backup) fica escondida.** `Ctrl+Shift+B` pede a senha — a mesma do Parallello:
+**Área de sistema (Conexões, Configurações e Backup) fica escondida.** `Ctrl+Shift+B` pede a senha — a mesma do Parallello:
 `P@r@llell0` + data do computador em DDMMAAAA (ex.: em 05/11/2026 → `P@r@llell005112026`). `Ctrl+Shift+B` de novo esconde.
 A senha é conferida em `electron/main.js` (`senhaSistemaDoDia`).
 
@@ -45,10 +45,11 @@ Se o teste falhar: SQL Server Configuration Manager → Protocolos → **TCP/IP 
 Instância nomeada: servidor `NOME\INSTANCIA` com o serviço **SQL Server Browser** ativo.
 
 ## Regras mantidas da planilha
-- Parcela (linha 0): `% Comissão` = comissão dos itens ÷ valor bruto dos itens; `Comissão = Round(Recebido × % / 100, 2)` (arredondamento do VBA).
-- Item (linha 1): `Comissão item = (ValorTotal [+ ICMSFItem] − devolução) × PerComVen / 100` — o ST entra só com "Somar ICMS ST" ligado (padrão: desligado).
-- Total dos pedidos = soma do "Total do pedido" de cada linha de parcela (igual ao SUMIF da planilha; pedido parcelado entra uma vez por parcela).
-- Só operações de venda (`TipoOp = 'V'`), devoluções descontadas via `NroRef`.
+- Parcela (linha 0): `Comissão = Round(Recebido × comissão dos itens ÷ Total pedido, 2)` — proporção sem arredondar, igual ao relatório do Ativo; `% Com.` mostra a proporção com 2 casas (pedido de um item: % do fabricante).
+- Pedido com várias parcelas: o número do pedido aparece só na 1ª parcela (as demais informações se repetem); o "Total dos pedidos" soma o total do pedido em cada baixa, igual à planilha.
+- Item (linha 1): `Comissão item = (ValorTotal − devolução) × PerComVen / 100` (sem tirar o ICMS-ST, igual ao Ativo).
+- Pedido parcelado: quando a última parcela (ex.: C/C) está no relatório com as anteriores, ela fica com a sobra do arredondamento (igual ao Ativo).
+- Só operações de venda (`TipoOp = 'V'`), devoluções descontadas via `NroRef` (igual ao Ativo).
 - Salvar comissões: UPDATE nas cidades existentes + INSERT nas que faltam, para a UF/tipo de cidade escolhidos.
 
 ## Melhorias em relação à planilha

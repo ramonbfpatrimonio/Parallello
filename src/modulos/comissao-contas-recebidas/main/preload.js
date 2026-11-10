@@ -10,7 +10,7 @@ const CANAIS = new Set([
   'config:obter', 'config:definir',
   'backup:info', 'backup:exportar', 'backup:restaurar',
   'sessao:info',
-  'sistema:liberar', 'regras:obter', 'regras:salvar', 'exportar:imprimir'
+  'sistema:liberar', 'exportar:imprimir'
 ]);
 
 contextBridge.exposeInMainWorld('api', {

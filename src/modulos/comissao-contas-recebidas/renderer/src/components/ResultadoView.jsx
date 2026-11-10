@@ -34,6 +34,7 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
     });
 
   const t = resultado.totais;
+  const diferenca = Math.round(((t.comissaoItens || 0) - t.comissao) * 100) / 100;
 
   return (
     <div className="resultado">
@@ -41,6 +42,9 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
         <div className="kpi">
           <span>Pedidos</span>
           <strong>{t.pedidos}</strong>
+          <small>
+            {t.pedidos}/{t.parcelas} (pedidos/parcelas)
+          </small>
         </div>
         <div className="kpi">
           <span>Total dos pedidos</span>
@@ -49,46 +53,49 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
         <div className="kpi">
           <span>Total recebido</span>
           <strong>{moeda(t.recebido)}</strong>
+          <small>baixas no período</small>
         </div>
         <div className="kpi destaque">
           <span>Comissão a pagar</span>
           <strong>{moeda(t.comissao)}</strong>
+          <small title="Soma da comissão calculada item a item (sem devoluções), para conferência">
+            pelos itens: {moeda(t.comissaoItens)}
+            {diferenca !== 0 && <em className={diferenca > 0 ? 'pos' : 'neg'}> ({diferenca > 0 ? '+' : ''}{moeda(diferenca)})</em>}
+          </small>
         </div>
       </div>
 
       <TabelaArrastavel
         cabecalho={
-      <div className="barra-resultado">
-        <div className="abas">
-          {[
-            ['detalhado', 'Detalhado'],
-            ['fabricante', `Por fabricante (${resultado.porFabricante.length})`],
-            ['vendedor', `Por vendedor (${resultado.porVendedor.length})`]
-          ].map(([id, r]) => (
-            <button key={id} className={'aba' + (aba === id ? ' ativa' : '')} onClick={() => setAba(id)}>
-              {r}
-            </button>
-          ))}
-        </div>
-        {aba === 'detalhado' && (
-          <div className="barra-direita">
-            <div className="busca">
-              <Icone nome="buscar" tamanho={15} />
-              <input placeholder="Filtrar pedido, cliente, documento, produto…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <div className="barra-resultado">
+            <div className="abas">
+              {[
+                ['detalhado', 'Detalhado'],
+                ['fabricante', `Por fabricante (${resultado.porFabricante.length})`],
+                ['vendedor', `Por vendedor (${resultado.porVendedor.length})`]
+              ].map(([id, r]) => (
+                <button key={id} className={'aba' + (aba === id ? ' ativa' : '')} onClick={() => setAba(id)}>
+                  {r}
+                </button>
+              ))}
             </div>
-            <label className="chave">
-              <input type="checkbox" checked={mostrarItens} onChange={(e) => aoMudarMostrarItens(e.target.checked)} />
-              <span className="trilho" />
-              Mostrar itens
-            </label>
+            {aba === 'detalhado' && (
+              <div className="barra-direita">
+                <div className="busca">
+                  <Icone nome="buscar" tamanho={15} />
+                  <input placeholder="Filtrar pedido, cliente, documento, produto…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                </div>
+                <label className="chave">
+                  <input type="checkbox" checked={mostrarItens} onChange={(e) => aoMudarMostrarItens(e.target.checked)} />
+                  <span className="trilho" />
+                  Mostrar itens
+                </label>
+              </div>
+            )}
           </div>
-        )}
-      </div>
         }
       >
-
-      {aba === 'detalhado' && (
-        <>
+        {aba === 'detalhado' && (
           <table className="tabela">
             <thead>
               <tr>
@@ -119,12 +126,17 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
                             </button>
                           )}
                         </td>
+                        {/* parcelas seguintes do mesmo pedido: só o número do pedido fica em branco */}
                         <td className="mono">
-                          {p.pedido}
-                          {temST(p) && (
-                            <span className="selo-st" title={`Pedido com ICMS-ST: ${moeda(p.totalST || p.itens.reduce((x, i) => x + (i.stItem || 0), 0))}`}>
-                              ST
-                            </span>
+                          {idx === 0 && (
+                            <>
+                              {p.pedido}
+                              {temST(p) && (
+                                <span className="selo-st" title={`Pedido com ICMS-ST: ${moeda(totalSTPedido(p))}`}>
+                                  ST
+                                </span>
+                              )}
+                            </>
                           )}
                         </td>
                         <td>{dataBR(p.dataPedido)}</td>
@@ -199,11 +211,9 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
               </tr>
             </tfoot>
           </table>
-        </>
-      )}
+        )}
 
-      {aba === 'fabricante' && (
-        <>
+        {aba === 'fabricante' && (
           <table className="tabela">
             <thead>
               <tr>
@@ -243,11 +253,9 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
               </tr>
             </tfoot>
           </table>
-        </>
-      )}
+        )}
 
-      {aba === 'vendedor' && (
-        <>
+        {aba === 'vendedor' && (
           <table className="tabela">
             <thead>
               <tr>
@@ -286,8 +294,7 @@ export default function ResultadoView({ resultado, mostrarItens, aoMudarMostrarI
               </tr>
             </tfoot>
           </table>
-        </>
-      )}
+        )}
       </TabelaArrastavel>
     </div>
   );
@@ -305,7 +312,10 @@ function Barra({ valor, total }) {
   );
 }
 
-// pedido tem ICMS-ST? (fechamentos antigos podem não ter totalST)
+// pedido tem ICMS-ST?
+function totalSTPedido(p) {
+  return p.totalST || p.itens.reduce((x, i) => x + (i.stItem || 0), 0);
+}
 function temST(p) {
-  return (p.totalST || 0) > 0 || p.itens.some((i) => (i.stItem || 0) > 0);
+  return totalSTPedido(p) > 0;
 }

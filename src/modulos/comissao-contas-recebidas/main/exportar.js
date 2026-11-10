@@ -14,20 +14,15 @@ function dataBR(iso) {
   return `${d}/${m}/${a}`;
 }
 
-function rotuloRegras(r) {
-  if (!r) return '';
-  if ('somarST' in r)
-    return `Regras: ${r.somarST ? 'com ICMS-ST (total, itens e recebido)' : 'sem ICMS-ST (total, itens e recebido)'} · devoluções descontadas`;
-  return `Regras: ${r.abaterST === false ? 'não abate ST' : 'abate ST'} · ${r.abaterDevolucoes === false ? 'não abate devoluções' : 'abate devoluções'}`;
-}
-
 function rotuloFiltros(f) {
   return [
     `Baixa: ${dataBR(f.baixaInicio)} a ${dataBR(f.baixaFim)}`,
     `Vendas a prazo a partir de: ${dataBR(f.vendaDesde)}`,
     `Vendedor: ${f.vendedorRotulo || 'Todos'}`,
     `Conexão: ${f.conexaoNome || ''}`,
-    rotuloRegras(f.regras)
+    f.colunasST
+      ? `Total pedido ${f.colunasST.totalComST ? 'com' : 'sem'} ST · Recebido ${f.colunasST.recebidoComST === false ? 'sem' : 'com'} ST · Total somado ${f.colunasST.somaPorBaixa === false ? 'por pedido' : 'por baixa'}`
+      : ''
   ]
     .filter(Boolean)
     .join('   |   ');
@@ -69,11 +64,14 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
   const toDate = (iso) => (iso ? new Date(iso + 'T12:00:00') : null);
 
   for (const p of res.pedidos) {
-    for (const pa of p.parcelas) {
+    p.parcelas.forEach((pa, idx) => {
+      // parcelas seguintes do mesmo pedido: só o número do pedido fica em branco
+      const pri = idx === 0;
       const r = ws.addRow([
-        'Parcela', toDate(p.dataPedido), p.pedido, toDate(pa.vencimento), toDate(pa.dataBaixa), p.codCliente, p.nomeCliente,
+        'Parcela', toDate(p.dataPedido), pri ? p.pedido : null, toDate(pa.vencimento), toDate(pa.dataBaixa),
+        p.codCliente, p.nomeCliente,
         pa.documento, pa.totalPedido, pa.valorRecebido, pa.percComis === null ? null : pa.percComis / 100, pa.valorComissao,
-        null, null, null, null, null, null, temST(p) ? p.totalST || null : null
+        null, null, null, null, null, null, temST(p) ? totalSTPedido(p) : null
       ]);
       r.font = { bold: true };
       r.eachCell({ includeEmpty: true }, (c, n) => {
@@ -81,11 +79,13 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
       });
       for (const col of [2, 4, 5]) r.getCell(col).numFmt = 'dd/mm/yyyy';
       if (temST(p)) {
-        r.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE0B2' } };
-        r.getCell(3).font = { bold: true, color: { argb: 'FFC2410C' } };
+        if (pri) {
+          r.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE0B2' } };
+          r.getCell(3).font = { bold: true, color: { argb: 'FFC2410C' } };
+        }
         r.getCell(19).font = { bold: true, color: { argb: 'FFC2410C' } };
       }
-    }
+    });
     for (const it of p.itens) {
       const r = ws.addRow([
         'Item', null, p.pedido, null, null, null, null, null, null, null, null, null,
@@ -98,7 +98,7 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
 
   const t = res.totais;
   const rt = ws.addRow(['TOTAL', null, `${t.pedidos} pedidos`, null, null, null, `${t.parcelas} parcelas`, null, t.totalPedidos, t.recebido, null, t.comissao, null, null, null, null, null, t.comissaoItens]);
-  rt.getCell(19).value = res.pedidos.reduce((s, p) => s + (p.totalST || 0), 0) || null;
+  rt.getCell(19).value = res.pedidos.reduce((s, p) => s + totalSTPedido(p), 0) || null;
   rt.eachCell({ includeEmpty: true }, (c, n) => {
     if (n > 19) return;
     c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -134,8 +134,11 @@ async function gerarExcel(res, { mostrarItens = true } = {}) {
   return wb.xlsx.writeBuffer();
 }
 
+function totalSTPedido(p) {
+  return p.totalST || p.itens.reduce((x, i) => x + (i.stItem || 0), 0);
+}
 function temST(p) {
-  return (p.totalST || 0) > 0 || p.itens.some((i) => (i.stItem || 0) > 0);
+  return totalSTPedido(p) > 0;
 }
 
 function estilizarCab(ws) {
@@ -155,9 +158,10 @@ function htmlRelatorio(res, { mostrarItens }) {
   const t = res.totais;
   let linhas = '';
   for (const p of res.pedidos) {
-    for (const pa of p.parcelas) {
-      linhas += `<tr class="parc"><td>${esc(p.pedido)}${temST(p) ? ' <span class="st">ST</span>' : ''}</td><td>${dataBR(p.dataPedido)}</td><td>${esc(p.codCliente)} - ${esc(p.nomeCliente)}</td><td>${esc(pa.documento)}</td><td>${dataBR(pa.vencimento)}</td><td>${dataBR(pa.dataBaixa)}</td><td class="n">${moeda(pa.totalPedido)}</td><td class="n">${moeda(pa.valorRecebido)}</td><td class="n">${pct(pa.percComis)}</td><td class="n">${moeda(pa.valorComissao)}</td></tr>`;
-    }
+    p.parcelas.forEach((pa, idx) => {
+      const pri = idx === 0;
+      linhas += `<tr class="parc"><td>${pri ? esc(p.pedido) + (temST(p) ? ' <span class="st">ST</span>' : '') : ''}</td><td>${dataBR(p.dataPedido)}</td><td>${esc(p.codCliente)} - ${esc(p.nomeCliente)}</td><td>${esc(pa.documento)}</td><td>${dataBR(pa.vencimento)}</td><td>${dataBR(pa.dataBaixa)}</td><td class="n">${moeda(pa.totalPedido)}</td><td class="n">${moeda(pa.valorRecebido)}</td><td class="n">${pct(pa.percComis)}</td><td class="n">${moeda(pa.valorComissao)}</td></tr>`;
+    });
     if (mostrarItens && p.itens.length) {
       linhas += `<tr class="itens"><td></td><td colspan="9"><table class="sub"><thead><tr><th>Produto</th><th>Descrição</th><th class="n">Quant.</th><th class="n">Valor</th><th class="n">ICMS-ST</th><th class="n">% Fabr.</th><th class="n">Comissão</th></tr></thead><tbody>`;
       for (const i of p.itens)
@@ -183,7 +187,7 @@ function htmlRelatorio(res, { mostrarItens }) {
   </style></head><body>
   <h1>Comissão por Contas Recebidas</h1>
   <div class="f">${esc(rotuloFiltros(res.filtros || {}))}</div>
-  <div class="k"><div>Pedidos<b>${t.pedidos}</b></div><div>Parcelas<b>${t.parcelas}</b></div><div>Total recebido<b>${moeda(t.recebido)}</b></div><div>Comissão<b>${moeda(t.comissao)}</b></div></div>
+  <div class="k"><div>Pedidos/parcelas<b>${t.pedidos}/${t.parcelas}</b></div><div>Parcelas<b>${t.parcelas}</b></div><div>Total recebido<b>${moeda(t.recebido)}</b></div><div>Comissão<b>${moeda(t.comissao)}</b></div></div>
   <table><thead><tr><th>Pedido</th><th>Data</th><th>Cliente</th><th>Documento</th><th>Venc.</th><th>Baixa</th><th class="n">Total pedido</th><th class="n">Recebido</th><th class="n">% Com.</th><th class="n">Comissão</th></tr></thead>
   <tbody>${linhas}</tbody>
   <tfoot><tr><td colspan="6">TOTAL — ${t.pedidos} pedidos / ${t.parcelas} parcelas</td><td class="n">${moeda(t.totalPedidos)}</td><td class="n">${moeda(t.recebido)}</td><td></td><td class="n">${moeda(t.comissao)}</td></tr></tfoot></table>

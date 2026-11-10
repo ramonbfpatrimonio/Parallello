@@ -7,10 +7,6 @@ async function call(canal, ...args) {
 
 export const api = {
   liberarSistema: (senha) => call('sistema:liberar', senha),
-  regras: {
-    obter: () => call('regras:obter'),
-    salvar: (r) => call('regras:salvar', r)
-  },
   conexoes: {
     listar: () => call('conexoes:listar'),
     salvar: (c) => call('conexoes:salvar', c),

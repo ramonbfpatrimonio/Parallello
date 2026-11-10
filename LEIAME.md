@@ -9,7 +9,7 @@ Um programa só (Electron + React) com os sistemas:
 | **Acompanhamento de Vendas** | Relatórios de vendas por fabricante, ranking, setor e ruptura | `src/modulos/acompanhamento` |
 | **Pesquisa de Relatórios** | Quais relatórios do Ativo.ERP têm as colunas procuradas | `src/modulos/pesquisa-relatorios` |
 | **Indicador Logístico** | Cumprimento de entregas, prazo médio, custo por entrega e devoluções, com metas | `src/modulos/indicador-logistico` |
-| **Comissão por Contas Recebidas** | Comissão dos vendedores pelas parcelas recebidas, configuração de % por fabricante no ERP e fechamentos | `src/modulos/comissao-contas-recebidas` |
+| **Comissão por Contas Recebidas (Cidade/Comissão)** | Comissão dos vendedores pelas parcelas recebidas, configuração de % por fabricante no ERP e fechamentos | `src/modulos/comissao-contas-recebidas` |
 
 ## Login, módulos e configuração (um só para tudo)
 

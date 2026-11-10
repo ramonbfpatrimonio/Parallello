@@ -48,10 +48,10 @@ module.exports = function criarModulo(ctx) {
     return { ...c, senha };
   }
 
-  // Regras de cálculo (área de sistema). Padrão: Somar ICMS-ST desligado.
-  function regrasCalculo() {
-    const r = store.configObter('regrasCalculo', {}) || {};
-    return { somarST: r.somarST === true };
+  // Chaves "com ST" da aba Configurações (área de sistema)
+  function colunasST() {
+    const st = store.configObter('colunasST', {}) || {};
+    return { totalComST: st.totalComST === true, recebidoComST: st.recebidoComST !== false, somaPorBaixa: st.somaPorBaixa !== false };
   }
   // Área de sistema (Ctrl+Shift+B): a senha master do Parallello (P@r@llell0 + data), conferida pelo hash
   let sistemaLiberado = false;
@@ -102,16 +102,10 @@ module.exports = function criarModulo(ctx) {
   });
   handle('conexoes:testar', async (c) => erp.testar(await conexaoCompleta(c && c.id)));
 
-  // Área de sistema e regras de cálculo
+  // Área de sistema
   handle('sistema:liberar', (senha) => {
     sistemaLiberado = ehSenhaMaster(senha);
     return sistemaLiberado;
-  });
-  handle('regras:obter', () => regrasCalculo());
-  handle('regras:salvar', (r) => {
-    exigirSistema();
-    store.configDefinir('regrasCalculo', { somarST: !!(r && r.somarST) });
-    return regrasCalculo();
   });
 
   // Vendedores e fabricantes
@@ -132,11 +126,10 @@ module.exports = function criarModulo(ctx) {
   // Relatório
   handle('relatorio:buscar', async (conexaoId, filtros) => {
     const c = await conexaoCompleta(conexaoId);
-    const regras = regrasCalculo();
-    const linhas = await erp.relatorio(c, { ...filtros, regras });
+    const linhas = await erp.relatorio(c, filtros);
     store.configDefinir('ultimosFiltros', { ...filtros, conexaoId: c.id });
     store.configDefinir('conexaoPadrao', c.id);
-    return processarRelatorio(linhas, { ...filtros, conexaoNome: c.nome, regras }, vendedoresCache(c.id));
+    return processarRelatorio(linhas, { ...filtros, conexaoNome: c.nome, colunasST: colunasST() }, vendedoresCache(c.id));
   });
 
   // Configuração de comissões (grava no ERP: só administradores alteram)
@@ -179,6 +172,7 @@ module.exports = function criarModulo(ctx) {
   // Config simples
   handle('config:obter', (chave, padrao) => store.configObter(chave, padrao));
   handle('config:definir', (chave, valor) => {
+    if (chave === 'colunasST') exigirSistema(); // configurações do cálculo só na área de sistema
     store.configDefinir(chave, valor);
     return true;
   });

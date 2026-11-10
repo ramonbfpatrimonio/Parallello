@@ -94,7 +94,6 @@ async function relatorio(c, f) {
       .input('baixaFim', sql.Date, baixaFim)
       .input('vendaDesde', sql.Date, vendaDesde)
       .input('vendedor', sql.Int, vendedor)
-      .input('somarST', sql.Bit, f.regras && f.regras.somarST ? 1 : 0)
       .query(Q.RELATORIO);
     return r.recordset;
   });

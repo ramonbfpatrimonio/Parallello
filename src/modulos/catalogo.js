@@ -46,7 +46,7 @@ export const CATALOGO = [
   },
   {
     id: 'comissao-contas-recebidas',
-    nome: 'Comissão por Contas Recebidas',
+    nome: 'Comissão por Contas Recebidas (Cidade/Comissão)',
     descricao: 'Comissão dos vendedores pelas parcelas recebidas, com resumo por fabricante e fechamentos.',
     cor: '#7a4fe0',
     fundo: '#f3f5f9',
