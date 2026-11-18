@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Users, Wallet, AlertTriangle, TrendingUp, Gauge, Loader2, Play, Timer } from 'lucide-react';
+import { Search, Users, Wallet, AlertTriangle, TrendingUp, Gauge, Loader2, Play, Timer, Clock, CalendarRange, ShieldCheck } from 'lucide-react';
 import { api, fmtMoeda, fmtNum, fmtData, classePerfil, periodoMesAtual, lsGet, lsSet, isoParaBr, useOrdenacao } from '../util.js';
 import { Th, CabecalhoPagina, Recolhivel, BotoesExportar, AreaDividida, Vazio } from '../componentes.jsx';
 import { montarRelatorio } from '../relatorio.js';
+import ConsultaSerasa from './ConsultaSerasa.jsx';
 
 const PERFIS = ['Excelente', 'Bom', 'Regular', 'Risco', 'Inadimplente'];
 
@@ -18,7 +19,9 @@ export const COLUNAS_EXPORT = [
   { titulo: 'Score', campo: 'ScoreCredito' },
   { titulo: 'Perfil', campo: 'PerfilCredito', largura: 14 },
   { titulo: 'Grupo Ranking', campo: 'GrupoRanking' },
-  { titulo: 'Limite Sugerido', campo: 'LimiteSugerido', tipo: 'moeda', largura: 15 },
+  { titulo: 'Limite Sugerido (score)', campo: 'LimiteSugerido', tipo: 'moeda', largura: 17 },
+  { titulo: 'Limite Sugerido (período)', campo: 'LimiteSugeridoPeriodo', tipo: 'moeda', largura: 18 },
+  { titulo: 'Vendas a Prazo no Período', campo: 'TotalVendidoPrazo', tipo: 'moeda', largura: 18 },
   { titulo: 'Prazo Sugerido (dias)', campo: 'PrazoSugeridoDias' },
   { titulo: 'Observação', campo: 'ObservacaoCredito', largura: 48 },
   { titulo: 'Prazo 1', campo: 'Prazo1' },
@@ -31,7 +34,7 @@ export const COLUNAS_EXPORT = [
   { titulo: 'Saldo Disponível', campo: 'SaldoDisponivel', tipo: 'moeda', largura: 16 },
   { titulo: 'Status', campo: 'StatusCliente' },
   { titulo: 'Bloqueado', campo: 'Bloqueado' },
-  { titulo: 'Total Comprado', campo: 'TotalCompradoHistorico', tipo: 'moeda', largura: 16 },
+  { titulo: 'Total Comprado (histórico)', campo: 'TotalCompradoHistorico', tipo: 'moeda', largura: 18 },
   { titulo: 'Maior Compra', campo: 'MaiorCompra', tipo: 'moeda', largura: 15 },
   { titulo: 'Ticket Médio', campo: 'TicketMedio', tipo: 'moeda', largura: 15 },
   { titulo: 'Primeira Compra', campo: 'PrimeiraCompra', tipo: 'data' },
@@ -39,10 +42,12 @@ export const COLUNAS_EXPORT = [
   { titulo: 'Qtd Pedidos Venda', campo: 'QtdPedidosVenda' },
   { titulo: 'Meses Relacionamento', campo: 'MesesRelacionamento' },
   { titulo: 'Vendas no Período', campo: 'TotalVendasPeriodo', tipo: 'moeda', largura: 16 },
+  { titulo: 'Média por Mês', campo: 'MediaMes', tipo: 'moeda', largura: 15 },
   { titulo: 'Qtd Pedidos', campo: 'QtdPedidos' },
   { titulo: 'Qtd Bonificados', campo: 'QtdPedidosBonificados' },
   { titulo: 'Qtd Devoluções', campo: 'QtdPedidosDevolucao' },
-  { titulo: 'Atraso Médio (dias)', campo: 'AtrasoMedioDias', tipo: 'decimal' },
+  { titulo: 'Atraso Médio (dias)', campo: 'AtrasoMedioDias' },
+  { titulo: 'Classificação Atraso', campo: 'ClassificacaoAtraso', largura: 16 },
   { titulo: 'Parcelas Pagas', campo: 'TotalParcelasPagas' },
   { titulo: 'Parcelas c/ Atraso', campo: 'ParcelasComAtraso' },
   { titulo: '% Atraso', campo: 'PercentualAtraso', tipo: 'decimal' },
@@ -52,6 +57,14 @@ export const COLUNAS_EXPORT = [
   { titulo: 'Total Recebido', campo: 'TotalRecebido', tipo: 'moeda', largura: 15 },
   { titulo: 'Pag. Pontual', campo: 'PagPontual' },
   { titulo: 'Pag. Atraso', campo: 'PagAtraso' },
+  { titulo: 'Pag. Adiantado', campo: 'PagAdiantado' },
+  { titulo: '% Pontual', campo: 'PercentualPontual', tipo: 'decimal' },
+  { titulo: '% Adiantado', campo: 'PercentualAdiantado', tipo: 'decimal' },
+  { titulo: 'Dias sem Comprar', campo: 'DiasSemComprar' },
+  { titulo: 'Alerta Inatividade', campo: 'AlertaInatividade', largura: 26 },
+  { titulo: 'Frequência Média (dias)', campo: 'FrequenciaMediaDias' },
+  { titulo: '% Uso do Limite', campo: 'PercentualUsoLimite', tipo: 'decimal' },
+  { titulo: 'Alerta Exposição', campo: 'AlertaExposicao', largura: 24 },
   { titulo: 'Vendedor Última Compra', campo: 'VendedorUltimaCompra', largura: 18 },
   { titulo: 'Vendedor Primeira Compra', campo: 'VendedorPrimeiraCompra', largura: 18 }
 ];
@@ -63,14 +76,19 @@ const COLS = [
   { titulo: 'Score', campo: 'ScoreCredito', num: true },
   { titulo: 'Perfil', campo: 'PerfilCredito' },
   { titulo: 'Limite atual', campo: 'LimiteAtual', num: true },
-  { titulo: 'Limite sugerido', campo: 'LimiteSugerido', num: true },
-  { titulo: 'Débito', campo: 'Debito', num: true },
+  { titulo: 'Lim. score', campo: 'LimiteSugerido', num: true },
+  { titulo: 'Lim. período', campo: 'LimiteSugeridoPeriodo', num: true },
+  { titulo: 'Uso do limite', campo: 'PercentualUsoLimite', num: true },
   { titulo: 'Saldo', campo: 'SaldoDisponivel', num: true },
   { titulo: 'Inadimplente', campo: 'ValorInadimplente', num: true },
   { titulo: 'Atraso médio', campo: 'AtrasoMedioDias', num: true },
   { titulo: 'Vendas período', campo: 'TotalVendasPeriodo', num: true },
-  { titulo: 'Última compra', campo: 'UltimaCompra' }
+  { titulo: 'Média/mês', campo: 'MediaMes', num: true },
+  { titulo: 'Sem comprar', campo: 'DiasSemComprar', num: true }
 ];
+
+const CLASSE_ATRASO = { Excelente: 'p-exc', Bom: 'p-bom', 'Médio': 'p-reg', Ruim: 'p-ina', 'Sem Histórico': '' };
+const CLASSE_NIVEL = { critico: 'nivel-critico', atencao: 'nivel-atencao', ok: '', sem: 'muted' };
 
 const COLS_RELATORIO = [
   { titulo: 'Código', campo: 'ClienteID' },
@@ -79,21 +97,22 @@ const COLS_RELATORIO = [
   { titulo: 'Score', campo: 'ScoreCredito', tipo: 'num' },
   { titulo: 'Perfil', campo: 'PerfilCredito' },
   { titulo: 'Lim. atual', campo: 'LimiteAtual', tipo: 'moeda' },
-  { titulo: 'Lim. sugerido', campo: 'LimiteSugerido', tipo: 'moeda' },
+  { titulo: 'Lim. score', campo: 'LimiteSugerido', tipo: 'moeda' },
+  { titulo: 'Lim. período', campo: 'LimiteSugeridoPeriodo', tipo: 'moeda' },
   { titulo: 'Prazo', campo: 'PrazoSugeridoDias', tipo: 'num' },
-  { titulo: 'Débito', campo: 'Debito', tipo: 'moeda' },
-  { titulo: 'Saldo', campo: 'SaldoDisponivel', tipo: 'moeda' },
+  { titulo: 'Uso lim.', campo: 'PercentualUsoLimite', tipo: 'pct' },
   { titulo: 'Inadimplente', campo: 'ValorInadimplente', tipo: 'moeda' },
-  { titulo: 'Atraso (d)', campo: 'AtrasoMedioDias', tipo: 'decimal1' },
+  { titulo: 'Atraso', campo: 'AtrasoMedioDias', valor: (l) => `${l.AtrasoMedioDias} d · ${l.ClassificacaoAtraso}` },
   { titulo: 'Vendas período', campo: 'TotalVendasPeriodo', tipo: 'moeda' },
-  { titulo: 'Últ. compra', campo: 'UltimaCompra', tipo: 'data' }
+  { titulo: 'Média/mês', campo: 'MediaMes', tipo: 'moeda' },
+  { titulo: 'Sem comprar', campo: 'DiasSemComprar', valor: (l) => (l.DiasSemComprar == null ? '—' : `${l.DiasSemComprar} d`) }
 ];
 
 function filtrosIniciais() {
   const p = periodoMesAtual();
   return lsGet('ac.filtros', {
     codigo: '', dataInicial: p.ini, dataFinal: p.fim, status: 'Ativo', bloqueado: '',
-    somenteSemCompra: false, abaterRetornos: true
+    somenteSemCompra: false, abaterRetornos: true, somarST: true
   });
 }
 
@@ -104,17 +123,27 @@ function descreverFiltros(f) {
   r.push(f.status ? `Status: ${f.status}` : 'Todos os status');
   if (f.bloqueado) r.push(f.bloqueado === 'S' ? 'Bloqueados' : 'Não bloqueados');
   if (f.somenteSemCompra) r.push('Somente sem compra');
-  r.push(f.abaterRetornos ? 'Abatendo devoluções' : 'Sem abater devoluções');
   return r;
 }
 
-export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
+// ajustes de cálculo (definidos em Configurações › Regras do score) — vão no PDF
+function descreverCalculo(calculo) {
+  if (!calculo) return [];
+  return [
+    calculo.abaterRetornos !== false ? 'Abatendo devoluções' : 'Sem abater devoluções',
+    calculo.somarST !== false ? 'Somando ICMS-ST' : 'Sem ICMS-ST'
+  ];
+}
+
+export default function Analise({ resultado, empresa, conexaoId, onResultado, onAbrir }) {
   const [f, setF] = useState(filtrosIniciais);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
   const [busca, setBusca] = useState('');
   const [perfilFiltro, setPerfilFiltro] = useState('');
+  const [alertaFiltro, setAlertaFiltro] = useState('');
   const [filtrosAbertos, setFiltrosAbertos] = useState(() => lsGet('ac.filtrosAbertos', true));
+  const [serasaAberta, setSerasaAberta] = useState(false);
 
   const alternarFiltros = () => { setFiltrosAbertos((v) => { lsSet('ac.filtrosAbertos', !v); return !v; }); };
   const muda = (campo) => (e) => setF({ ...f, [campo]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -134,22 +163,26 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
 
   const resumo = useMemo(() => {
     const porPerfil = Object.fromEntries(PERFIS.map((p) => [p, 0]));
-    let vendas = 0, inad = 0, sugerido = 0;
+    let vendas = 0, inad = 0, sugerido = 0, sugeridoPeriodo = 0, inativos = 0, limite = 0;
     for (const l of linhas) {
+      if (['atencao', 'critico'].includes(l.NivelInatividade)) inativos++;
+      if (['atencao', 'critico'].includes(l.NivelExposicao)) limite++;
       porPerfil[l.PerfilCredito] = (porPerfil[l.PerfilCredito] || 0) + 1;
       vendas += Number(l.TotalVendasPeriodo) || 0;
       inad += Number(l.ValorInadimplente) || 0;
       sugerido += Number(l.LimiteSugerido) || 0;
+      sugeridoPeriodo += Number(l.LimiteSugeridoPeriodo) || 0;
     }
-    return { porPerfil, vendas, inad, sugerido };
+    return { porPerfil, vendas, inad, sugerido, sugeridoPeriodo, inativos, limite };
   }, [linhas]);
 
   const filtradas = useMemo(() => {
     const t = busca.trim().toLowerCase();
     return linhas.filter((l) =>
       (!perfilFiltro || l.PerfilCredito === perfilFiltro) &&
+      (!alertaFiltro || (alertaFiltro === 'inativo' ? ['atencao', 'critico'].includes(l.NivelInatividade) : ['atencao', 'critico'].includes(l.NivelExposicao))) &&
       (!t || `${l.ClienteID} ${l.Nome || ''} ${l.Nome_Fanta || ''} ${l.Cidade || ''}`.toLowerCase().includes(t)));
-  }, [linhas, busca, perfilFiltro]);
+  }, [linhas, busca, perfilFiltro, alertaFiltro]);
 
   const { ordenadas, ordem, alternar } = useOrdenacao(filtradas, { campo: 'ScoreCredito', desc: true });
 
@@ -165,9 +198,9 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
 
   const htmlRelatorio = () => montarRelatorio({
     titulo: 'Análise de Crédito',
-    subtitulo: `${fmtNum(ordenadas.length)} cliente(s)${perfilFiltro ? ` · perfil ${perfilFiltro}` : ''}${busca ? ` · busca "${busca}"` : ''}`,
+    subtitulo: `${fmtNum(ordenadas.length)} cliente(s)${perfilFiltro ? ` · perfil ${perfilFiltro}` : ''}${alertaFiltro ? ` · ${alertaFiltro === 'inativo' ? 'inativos' : 'limite alto'}` : ''}${busca ? ` · busca "${busca}"` : ''}`,
     empresa,
-    filtros: descreverFiltros(usados),
+    filtros: [...descreverFiltros(usados), ...descreverCalculo(resultado?.calculo)],
     paisagem: true,
     blocos: [
       {
@@ -175,7 +208,9 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
           { tipo: 'kv', itens: [['Clientes', fmtNum(ordenadas.length), true]] },
           { tipo: 'kv', itens: [['Vendas no período', fmtMoeda(ordenadas.reduce((s, l) => s + (Number(l.TotalVendasPeriodo) || 0), 0)), true]] },
           { tipo: 'kv', itens: [['Inadimplência', fmtMoeda(ordenadas.reduce((s, l) => s + (Number(l.ValorInadimplente) || 0), 0)), true]] },
-          { tipo: 'kv', itens: [['Limite sugerido total', fmtMoeda(ordenadas.reduce((s, l) => s + (Number(l.LimiteSugerido) || 0), 0)), true]] }
+          { tipo: 'kv', itens: [
+            ['Limite sugerido (score)', fmtMoeda(ordenadas.reduce((s, l) => s + (Number(l.LimiteSugerido) || 0), 0)), true],
+            ['Limite pelo período (total)', fmtMoeda(ordenadas.reduce((s, l) => s + (Number(l.LimiteSugeridoPeriodo) || 0), 0)), true]] }
         ]
       },
       { tipo: 'tabela', colunas: COLS_RELATORIO, linhas: ordenadas }
@@ -214,7 +249,6 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
             </select>
           </label>
           <div className="checks">
-            <label className="switch"><input type="checkbox" checked={f.abaterRetornos} onChange={muda('abaterRetornos')} /><i />Abater devoluções</label>
             <label className="switch"><input type="checkbox" checked={f.somenteSemCompra} onChange={muda('somenteSemCompra')} /><i />Somente sem compra</label>
           </div>
           <button className="btn primario grande" disabled={carregando}>
@@ -238,7 +272,8 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
         <div className="resumo">
           <div className="kpi"><div className="kpi-ico azul"><Users size={18} /></div><div className="kpi-txt"><span>Clientes</span><strong title={fmtNum(linhas.length)}>{fmtNum(linhas.length)}</strong></div></div>
           <div className="kpi"><div className="kpi-ico verde"><TrendingUp size={18} /></div><div className="kpi-txt"><span>Vendas no período</span><strong title={fmtMoeda(resumo.vendas)}>{fmtMoeda(resumo.vendas)}</strong></div></div>
-          <div className="kpi"><div className="kpi-ico roxo"><Wallet size={18} /></div><div className="kpi-txt"><span>Limite sugerido total</span><strong title={fmtMoeda(resumo.sugerido)}>{fmtMoeda(resumo.sugerido)}</strong></div></div>
+          <div className="kpi" title="Soma do limite sugerido pelo score (faixas) dos clientes listados"><div className="kpi-ico roxo"><Wallet size={18} /></div><div className="kpi-txt"><span>Limite sugerido (score)</span><strong title={fmtMoeda(resumo.sugerido)}>{fmtMoeda(resumo.sugerido)}</strong></div></div>
+          <div className="kpi" title="Soma do limite pelo período (média de vendas a prazo × multiplicador do atraso)"><div className="kpi-ico ciano"><CalendarRange size={18} /></div><div className="kpi-txt"><span>Limite pelo período (total)</span><strong title={fmtMoeda(resumo.sugeridoPeriodo)}>{fmtMoeda(resumo.sugeridoPeriodo)}</strong></div></div>
           <div className="kpi"><div className="kpi-ico vermelho"><AlertTriangle size={18} /></div><div className="kpi-txt"><span>Inadimplência</span><strong className="txt-neg" title={fmtMoeda(resumo.inad)}>{fmtMoeda(resumo.inad)}</strong></div></div>
           <div className="kpi perfis">
             {PERFIS.map((p) => (
@@ -247,6 +282,13 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
                 {p} <b>{resumo.porPerfil[p] || 0}</b>
               </button>
             ))}
+            <span className="chips-sep" />
+            <button className={`chip alerta-chip ${alertaFiltro === 'inativo' ? 'sel' : ''}`} onClick={() => setAlertaFiltro(alertaFiltro === 'inativo' ? '' : 'inativo')} title="Clientes inativos há mais de 3 meses">
+              <Clock size={13} />Inativos <b>{resumo.inativos}</b>
+            </button>
+            <button className={`chip alerta-chip ${alertaFiltro === 'limite' ? 'sel' : ''}`} onClick={() => setAlertaFiltro(alertaFiltro === 'limite' ? '' : 'limite')} title="Uso do limite acima de 70%">
+              <Gauge size={13} />Limite alto <b>{resumo.limite}</b>
+            </button>
           </div>
         </div>
       )}
@@ -260,7 +302,12 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
         subtitulo="Score, limite e prazo sugeridos por cliente"
         filtrosAbertos={filtrosAbertos}
         onAlternarFiltros={alternarFiltros}
-        acoes={resultado && <BotoesExportar onExcel={exportarExcel} onPdf={pdf} onImprimir={imprimir} desabilitado={!ordenadas.length} />}
+        acoes={<>
+          <button className="btn serasa-btn" onClick={() => setSerasaAberta(true)} title="Consultar o Score Serasa de um cliente ou CPF/CNPJ">
+            <ShieldCheck size={15} />Score Serasa
+          </button>
+          {resultado && <BotoesExportar onExcel={exportarExcel} onPdf={pdf} onImprimir={imprimir} desabilitado={!ordenadas.length} />}
+        </>}
       />
 
       <AreaDividida topo={topo}>
@@ -272,7 +319,7 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
                 <input placeholder="Buscar por código, nome, fantasia ou cidade…" value={busca} onChange={(e) => setBusca(e.target.value)} />
               </div>
               <span className="muted pequeno">
-                {fmtNum(ordenadas.length)} de {fmtNum(linhas.length)} · ranking entre {fmtNum(resultado.totalClientesRanking)} clientes
+                {fmtNum(ordenadas.length)} de {fmtNum(linhas.length)}
               </span>
               <Tempos segundos={resultado.segundos} tempos={resultado.tempos} />
             </div>
@@ -293,12 +340,20 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
                       <td><span className={`chip ${classePerfil(l.PerfilCredito)}`}>{l.PerfilCredito}</span></td>
                       <td className="num">{fmtMoeda(l.LimiteAtual)}</td>
                       <td className="num forte">{fmtMoeda(l.LimiteSugerido)}</td>
-                      <td className="num">{fmtMoeda(l.Debito)}</td>
+                      <td className="num forte">{fmtMoeda(l.LimiteSugeridoPeriodo)}</td>
+                      <td className={`num ${CLASSE_NIVEL[l.NivelExposicao] || ''}`} title={l.AlertaExposicao}>
+                        {Number(l.LimiteAtual) > 0 ? `${fmtNum(l.PercentualUsoLimite, 0)}%` : '—'}
+                      </td>
                       <td className={`num ${Number(l.SaldoDisponivel) < 0 ? 'txt-neg' : ''}`}>{fmtMoeda(l.SaldoDisponivel)}</td>
                       <td className={`num ${Number(l.ValorInadimplente) > 0 ? 'txt-neg' : 'muted'}`}>{fmtMoeda(l.ValorInadimplente)}</td>
-                      <td className="num">{fmtNum(l.AtrasoMedioDias, 1)} d</td>
+                      <td className="num">
+                        <span className="atraso-cel">{l.AtrasoMedioDias} d<span className={`mini ${CLASSE_ATRASO[l.ClassificacaoAtraso] || ''}`}>{l.ClassificacaoAtraso}</span></span>
+                      </td>
                       <td className="num">{fmtMoeda(l.TotalVendasPeriodo)}</td>
-                      <td>{fmtData(l.UltimaCompra)}</td>
+                      <td className="num">{fmtMoeda(l.MediaMes)}</td>
+                      <td className={`num ${CLASSE_NIVEL[l.NivelInatividade] || ''}`} title={`${l.AlertaInatividade} · última compra ${fmtData(l.UltimaCompra)}`}>
+                        {l.DiasSemComprar == null ? '—' : `${fmtNum(l.DiasSemComprar)} d`}
+                      </td>
                     </tr>
                   ))}
                   {ordenadas.length === 0 && (
@@ -316,6 +371,7 @@ export default function Analise({ resultado, empresa, onResultado, onAbrir }) {
           </div>
         )}
       </AreaDividida>
+      {serasaAberta && <ConsultaSerasa conexaoId={conexaoId} onFechar={() => setSerasaAberta(false)} />}
     </div>
   );
 }

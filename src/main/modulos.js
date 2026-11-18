@@ -7,6 +7,7 @@ export const FABRICAS = {
   'pesquisa-relatorios': () => require('../modulos/pesquisa-relatorios/modulo.js'),
   'indicador-logistico': () => require('../modulos/indicador-logistico/main/modulo.js'),
   'comissao-contas-recebidas': () => require('../modulos/comissao-contas-recebidas/main/modulo.js'),
+  cobranca: () => require('../modulos/cobranca/main/modulo.js'),
   'analise-credito': () => require('../modulos/analise-credito/main/modulo.js'),
   'custo-producao': () => require('../modulos/custo-producao/main/modulo.js'),
 };

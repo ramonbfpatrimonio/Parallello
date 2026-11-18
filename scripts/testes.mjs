@@ -12,6 +12,7 @@ const etapas = [
   ['Acompanhamento de Vendas (módulo)', 'node', ['src/modulos/acompanhamento/test/main-smoke.cjs']],
   ['Pesquisa de Relatórios', 'node', ['--test', ...readdirSync(resolve(raiz, pq)).filter((f) => f.endsWith('.test.js')).map((f) => `${pq}/${f}`)]],
   ['Indicador Logístico', 'node', ['src/modulos/indicador-logistico/test/engine.test.js']],
+  ['Cobrança', 'node', ['--test', 'src/modulos/cobranca/test/logica.test.mjs']],
   // roda o arquivo direto (sem --test): no Windows, se o processo cair, o erro aparece na tela em vez de sumir
   ['Parallello', 'node', ['tests/parallello.test.mjs']]
 ]

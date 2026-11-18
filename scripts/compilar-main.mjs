@@ -34,6 +34,9 @@ export async function compilarMain({ dev = false } = {}) {
   })
   // SQLite do Comissão por Contas Recebidas (sql.js): o .wasm vai ao lado do processo principal
   copyFileSync(resolve(raiz, 'node_modules/sql.js/dist/sql-wasm.wasm'), out('main/sql-wasm.wasm'))
+  // Manual do usuário da Análise de Crédito (o electron-builder deixa fora do .asar: asarUnpack)
+  mkdirSync(out('main/manual'), { recursive: true })
+  copyFileSync(resolve(raiz, 'src/modulos/analise-credito/manual/Manual do Usuario - Analise de Credito.pdf'), out('main/manual/Manual do Usuario - Analise de Credito.pdf'))
   // preloads: um por tela. Só podem usar o módulo 'electron' (telas em sandbox).
   const preloads = {
     shell: src('preload/shell.js'),
@@ -43,6 +46,7 @@ export async function compilarMain({ dev = false } = {}) {
     'pesquisa-relatorios': src('modulos/pesquisa-relatorios/preload.js'),
     'indicador-logistico': src('modulos/indicador-logistico/main/preload.js'),
     'comissao-contas-recebidas': src('modulos/comissao-contas-recebidas/main/preload.js'),
+    cobranca: src('modulos/cobranca/main/preload.js'),
     'analise-credito': src('modulos/analise-credito/main/preload.cjs'),
     'custo-producao': src('modulos/custo-producao/main/preload.js')
   }

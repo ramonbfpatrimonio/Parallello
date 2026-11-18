@@ -7,6 +7,7 @@ import indicadorLogistico from '../../modulos/indicador-logistico/icone.png'
 import comissao from '../../modulos/comissao-contas-recebidas/icone.png'
 import analiseCredito from '../../modulos/analise-credito/icone.png'
 import custoProducao from '../../modulos/custo-producao/icone.png'
+import cobranca from '../../modulos/cobranca/icone.png'
 
 export const ICONES = {
   'gerar-pre-venda': gerarPreVenda,
@@ -16,5 +17,6 @@ export const ICONES = {
   'indicador-logistico': indicadorLogistico,
   'comissao-contas-recebidas': comissao,
   'analise-credito': analiseCredito,
-  'custo-producao': custoProducao
+  'custo-producao': custoProducao,
+  cobranca
 }

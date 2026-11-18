@@ -20,7 +20,9 @@
   },
   "dependencies": {
     "electron-updater": "6.3.9",
-    "pdfjs-dist": "4.10.38"
+    "nodemailer": "10.6.0",
+    "pdfjs-dist": "4.10.38",
+    "qrcode": "1.5.4"
   },
   "optionalDependencies": {
     "msnodesqlv8": "4.5.0"

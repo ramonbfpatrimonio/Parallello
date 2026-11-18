@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Gauge, BarChart3, History, Database, ChevronDown, Lock, CheckCircle2 } from 'lucide-react';
+import { Gauge, BarChart3, History, Database, ChevronDown, Lock, CheckCircle2, Settings, X, BookOpen } from 'lucide-react';
 import { api } from './util.js';
 import logo from './assets/logo.svg';
 import Analise from './telas/Analise.jsx';
@@ -7,20 +7,24 @@ import Ficha from './telas/Ficha.jsx';
 import VendasMes from './telas/VendasMes.jsx';
 import Historico from './telas/Historico.jsx';
 import AreaOculta from './telas/AreaOculta.jsx';
+import Manual from './telas/Manual.jsx';
 
 const MENU = [
   { id: 'analise', nome: 'Análise de Crédito', icone: Gauge },
   { id: 'vendas', nome: 'Vendas por Mês', icone: BarChart3 },
-  { id: 'historico', nome: 'Histórico de Decisões', icone: History }
+  { id: 'historico', nome: 'Histórico de Decisões', icone: History },
+  { id: 'manual', nome: 'Manual do usuário', icone: BookOpen }
 ];
 
 export default function App() {
   const [tela, setTela] = useState('analise');
   const [fichaCliente, setFichaCliente] = useState(null);
+  const [fichaVersao, setFichaVersao] = useState(0);
+  const [fichaAtualizadaEm, setFichaAtualizadaEm] = useState(null);
   const [resultado, setResultado] = useState(null);
   const [filtrosUsados, setFiltrosUsados] = useState(null);
   const [pedindoSenha, setPedindoSenha] = useState(false);
-  const [areaOculta, setAreaOculta] = useState(false);
+  const [configLiberada, setConfigLiberada] = useState(false);
   const [conexoes, setConexoes] = useState([]);
   const ativa = conexoes.find((c) => c.ativa) || null;
 
@@ -34,12 +38,13 @@ export default function App() {
     const onKey = (e) => {
       if (e.ctrlKey && e.shiftKey && (e.code === 'KeyB' || e.key.toLowerCase() === 'b')) {
         e.preventDefault();
-        if (!areaOculta) setPedindoSenha(true);
+        if (configLiberada) irPara('config');
+        else setPedindoSenha(true);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [areaOculta]);
+  }, [configLiberada]);
 
   const trocarConexao = async (id) => {
     await api.conexoesAtivar(id);
@@ -49,11 +54,16 @@ export default function App() {
   };
 
   const irPara = (id) => { setFichaCliente(null); setTela(id); };
-  const telaAtual = MENU.find((m) => m.id === tela);
+  const telaAtual = tela === 'config' ? { nome: 'Área do sistema' } : MENU.find((m) => m.id === tela);
+  const fecharConfig = () => {
+    setConfigLiberada(false);
+    if (tela === 'config') setTela('analise');
+    carregarConexoes();
+  };
 
   return (
     <div className="app">
-      <BarraLateral tela={tela} onIr={irPara} ativa={ativa} />
+      <BarraLateral tela={tela} onIr={irPara} ativa={ativa} configLiberada={configLiberada} onFecharConfig={fecharConfig} />
 
       <div className="principal">
         <div className="topo">
@@ -69,48 +79,59 @@ export default function App() {
           {conexoes.length === 0 && (
             <div className="aviso"><Lock size={15} /> Nenhuma conexão cadastrada. Cadastre na Configuração do Parallello (Ctrl+Shift+B na tela inicial).</div>
           )}
-          {tela === 'analise' && !fichaCliente && (
+          {tela !== 'config' && tela === 'analise' && !fichaCliente && (
             <Analise
               key={ativa?.id || 'sem'}
               resultado={resultado}
               empresa={ativa?.nome}
+              conexaoId={ativa?.id}
               onResultado={(r, f) => { setResultado(r); setFiltrosUsados(f); }}
-              onAbrir={(c) => setFichaCliente(c)}
+              onAbrir={(c) => { setFichaCliente(c); setFichaAtualizadaEm(null); }}
             />
           )}
           {tela === 'analise' && fichaCliente && (
             <Ficha
+              key={`${fichaCliente.ClienteID}-${fichaVersao}`}
               cliente={fichaCliente}
+              atualizadoEm={fichaAtualizadaEm}
+              onAtualizado={(nova) => {
+                setFichaCliente(nova);
+                setResultado((r) => (r ? { ...r, linhas: r.linhas.map((l) => (l.ClienteID === nova.ClienteID ? nova : l)) } : r));
+                setFichaAtualizadaEm(new Date().toISOString());
+                setFichaVersao((v) => v + 1);
+              }}
               filtros={filtrosUsados}
               empresa={ativa?.nome}
               conexaoId={ativa?.id}
+              mesesAtraso={resultado?.mesesHistoricoAtraso}
               pontuacaoMaxima={resultado?.pontuacaoMaxima}
               onVoltar={() => setFichaCliente(null)}
             />
           )}
           {tela === 'vendas' && <VendasMes key={ativa?.id || 'sem'} empresa={ativa?.nome} />}
           {tela === 'historico' && <Historico conexoes={conexoes} ativa={ativa} />}
+          {tela === 'manual' && <Manual />}
+          {configLiberada && (
+            <div className="tela-config" hidden={tela !== 'config'}>
+              <AreaOculta visivel={tela === 'config'} onFechar={fecharConfig} onConexoesAlteradas={carregarConexoes} />
+            </div>
+          )}
         </main>
       </div>
 
       {pedindoSenha && (
         <ModalSenha
           onCancelar={() => setPedindoSenha(false)}
-          onOk={() => { setPedindoSenha(false); setAreaOculta(true); }}
+          onOk={() => { setPedindoSenha(false); setConfigLiberada(true); irPara('config'); }}
         />
       )}
-      {areaOculta && (
-        <AreaOculta
-          onFechar={() => { setAreaOculta(false); carregarConexoes(); }}
-          onConexoesAlteradas={carregarConexoes}
-        />
-      )}
+
     </div>
   );
 }
 
 // Barra lateral: recolhida mostra só os ícones; abre ao passar o mouse e recolhe ao sair
-function BarraLateral({ tela, onIr, ativa }) {
+function BarraLateral({ tela, onIr, ativa, configLiberada, onFecharConfig }) {
   return (
     <aside className="lateral">
       <div className="lateral-painel">
@@ -132,6 +153,15 @@ function BarraLateral({ tela, onIr, ativa }) {
             );
           })}
         </nav>
+        {configLiberada && (
+          <div className="menu-config">
+            <button className={`menu-item ${tela === 'config' ? 'ativo' : ''}`} onClick={() => onIr('config')} title="Área do sistema">
+              <span className="menu-icone"><Settings size={19} /></span>
+              <span className="rotulo">Área do sistema</span>
+            </button>
+            <button className="menu-fechar rotulo" onClick={onFecharConfig} title="Fechar e bloquear a Área do sistema"><X size={14} /></button>
+          </div>
+        )}
         <div className="lateral-rodape">
           <span className={`menu-icone ${ativa ? 'ok' : 'off'}`}><Database size={17} /></span>
           <span className="rotulo">

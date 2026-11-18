@@ -120,6 +120,10 @@ function iniciarModulo(id) {
       atualizacao,
       usuario: () => sessao.usuarioParaModulo(),
       conexoes: conexoesParaModulos,
+      // se o usuário pode abrir outro sistema (ex.: o card de cobrança na Análise de Crédito)
+      podeAbrir: (outro) => sessao.podeAbrir(outro),
+      // nuvem do Parallello com a sessão do usuário logado (módulos que guardam dados na nuvem, ex.: Cobrança)
+      nuvem: { cliente: () => nuvem.clienteLogado(), token: () => nuvem.token() },
     }) || {};
   } catch (erro) {
     console.error(`[parallello] ${id} não iniciou:`, erro);
@@ -141,10 +145,17 @@ const CSS_FIXO = {
 };
 const CSS_ESCURO = `
 html { filter: invert(0.9) hue-rotate(180deg) !important; background: #fff !important; min-height: 100%; }
-img, video, canvas, picture, iframe, embed, object, .pl-sem-inverter { filter: invert(1) hue-rotate(180deg) !important; }
-.pl-sem-inverter img, .pl-sem-inverter video, .pl-sem-inverter canvas, .pl-sem-inverter picture, .pl-sem-inverter .pl-sem-inverter { filter: none !important; }
+img, video, canvas, picture, iframe, embed, object, .pl-sem-inverter, .pl-reinverter { filter: invert(1) hue-rotate(180deg) !important; }
+.pl-sem-inverter img, .pl-sem-inverter video, .pl-sem-inverter canvas, .pl-sem-inverter picture, .pl-sem-inverter iframe, .pl-sem-inverter .pl-sem-inverter { filter: none !important; }
+.pl-reinverter img, .pl-reinverter video, .pl-reinverter canvas, .pl-reinverter picture, .pl-reinverter iframe { filter: invert(1) hue-rotate(180deg) !important; }
+/* o filtro cria uma camada própria: sem isto, o menu que abre de dentro de uma barra escura (ex.: trocar a
+   conexão no Gerar Pré-Venda) fica por baixo do conteúdo e não recebe o clique */
+.pl-camada { position: relative; z-index: var(--pl-z, 5); }
+@media print { html, img, video, canvas, picture, iframe, embed, object, .pl-sem-inverter, .pl-reinverter { filter: none !important; } }
 `;
 // Marca os elementos de fundo escuro (para não inverterem) e acompanha o que a tela desenhar depois.
+// Dentro de um marcado, o que for claro (menu suspenso, caixa) é invertido de novo, para ficar escuro também.
+// Não marca quem tem janela fixa (modal) dentro: o filtro prenderia a janela dentro do elemento.
 const JS_MARCAR_ESCUROS = `(() => {
   if (window.__plMarcar) return window.__plMarcar(true);
   const luz = (cor) => {
@@ -155,24 +166,50 @@ const JS_MARCAR_ESCUROS = `(() => {
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   };
   const PULAR = new Set(['TD', 'TR', 'TBODY', 'SPAN', 'B', 'I', 'STRONG', 'EM', 'OPTION', 'PATH', 'svg', 'path', 'G', 'g']);
+  const CLASSES = ['pl-sem-inverter', 'pl-reinverter', 'pl-camada'];
   let ligado = false, agendado = 0;
   const marcar = () => {
     agendado = 0;
     if (!ligado) return;
+    const itens = [], fixos = [];
     for (const el of document.querySelectorAll('body *')) {
-      if (PULAR.has(el.tagName) || el.closest('.pl-sem-inverter') !== null && !el.classList.contains('pl-sem-inverter')) continue;
+      if (PULAR.has(el.tagName)) continue;
       const cs = getComputedStyle(el);
+      if (cs.position === 'fixed' && cs.display !== 'none') fixos.push(el);
       let l = luz(cs.backgroundColor);
       if (l === null && cs.backgroundImage.includes('gradient')) l = luz(cs.backgroundImage); // menu lateral em degradê
-      if (l !== null && l < 0.38) el.classList.add('pl-sem-inverter');
-      else if (el.classList.contains('pl-sem-inverter') && (l === null || l >= 0.38)) el.classList.remove('pl-sem-inverter');
+      itens.push([el, l, cs]);
+    }
+    const marcados = [], reinvertidos = [], camadas = new Map();
+    const dentro = (lista, el) => lista.some((m) => m !== el && m.contains(el));
+    for (const [el, l, cs] of itens) {
+      const emReinvertido = dentro(reinvertidos, el);
+      const escuro = !emReinvertido && l !== null && l < 0.38 && !dentro(marcados, el) && !fixos.some((f) => f !== el && el.contains(f));
+      const claroDentro = !escuro && !emReinvertido && l !== null && l > 0.62 && dentro(marcados, el);
+      if (escuro) marcados.push(el);
+      if (claroDentro) reinvertidos.push(el);
+      el.classList.toggle('pl-sem-inverter', escuro);
+      el.classList.toggle('pl-reinverter', claroDentro);
+      // camada só para quem está no fluxo normal (fixos/absolutos já têm a sua)
+      const noFluxo = el.classList.contains('pl-camada') || ((cs.position === 'static' || cs.position === 'relative') && cs.zIndex === 'auto');
+      el.classList.toggle('pl-camada', escuro && noFluxo);
+      // a camada sobe até o maior z-index do que abre dentro dela (menu, lista suspensa)
+      const zi = parseInt(cs.zIndex, 10);
+      if (!escuro && cs.position !== 'static' && zi > 0) {
+        const c = el.parentElement && el.parentElement.closest('.pl-camada');
+        if (c) camadas.set(c, Math.max(camadas.get(c) || 0, zi));
+      }
+    }
+    for (const c of document.querySelectorAll('.pl-camada')) {
+      const z = String(Math.max(5, camadas.get(c) || 0));
+      if (c.style.getPropertyValue('--pl-z') !== z) c.style.setProperty('--pl-z', z);
     }
   };
-  const obs = new MutationObserver(() => { if (ligado && !agendado) agendado = setTimeout(marcar, 200); });
+  const obs = new MutationObserver(() => { if (ligado && !agendado) agendado = setTimeout(marcar, 120); });
   window.__plMarcar = (sim) => {
     ligado = sim;
     if (sim) { obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] }); marcar(); }
-    else { obs.disconnect(); document.querySelectorAll('.pl-sem-inverter').forEach((e) => e.classList.remove('pl-sem-inverter')); }
+    else { obs.disconnect(); document.querySelectorAll('.pl-camada').forEach((e) => e.style.removeProperty('--pl-z')); for (const c of CLASSES) document.querySelectorAll('.' + c).forEach((e) => e.classList.remove(c)); }
   };
   window.__plMarcar(true);
 })()`;
@@ -246,6 +283,7 @@ function criarAba(info) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      plugins: true, // leitor de PDF do Chromium (Manual do usuário da Análise de Crédito)
     },
   });
   view.setBackgroundColor(tema === 'escuro' ? '#1a1d21' : info.fundo);

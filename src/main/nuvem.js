@@ -32,6 +32,11 @@ function sb() {
   return cliente
 }
 
+/** Cliente da nuvem com a sessão do usuário logado (para os módulos que gravam direto nas próprias tabelas). */
+export function clienteLogado() {
+  return sb()
+}
+
 /** Falha de rede (sem internet / Supabase fora do ar), e não erro de regra. */
 export function ehErroDeRede(e) {
   const m = e?.message ?? String(e)

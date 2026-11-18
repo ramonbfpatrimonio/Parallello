@@ -23,6 +23,27 @@ export const fmtDataHora = (v) => {
 export const isoDia = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+// dias de atraso sem casas decimais: entre 0 e 1 vira 1 dia; acima, arredonda para cima
+export const diasAtraso = (v) => {
+  if (v === null || v === undefined || isNaN(Number(v))) return null;
+  const n = Number(v);
+  if (n <= 0) return 0;
+  return Math.max(1, Math.ceil(n));
+};
+export const fmtDias = (v) => {
+  const d = diasAtraso(v);
+  if (d === null) return '—';
+  return d === 1 ? '1 dia' : `${d.toLocaleString('pt-BR')} dias`;
+};
+
+// meses do período (como DATEDIFF(MONTH, ini, fim) + 1 do script)
+export const mesesPeriodo = (ini, fim) => {
+  if (!ini) return null;
+  const a = new Date(`${ini}T00:00:00`);
+  const b = fim ? new Date(`${fim}T00:00:00`) : new Date();
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1;
+};
+
 export const isoParaBr = (s) => (s ? String(s).split('-').reverse().join('/') : '');
 
 export function periodoMesAtual() {

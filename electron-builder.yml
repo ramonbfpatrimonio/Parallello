@@ -10,6 +10,7 @@ files:
   - package.json
   - "!**/*.map"
 asarUnpack:
+  - out/main/manual/**
   - node_modules/pdfjs-dist/**
   - node_modules/msnodesqlv8/**
 win:

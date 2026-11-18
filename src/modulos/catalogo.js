@@ -61,6 +61,14 @@ export const CATALOGO = [
     pagina: 'modulos/analise-credito/renderer/index.html',
   },
   {
+    id: 'cobranca',
+    nome: 'Cobrança',
+    descricao: 'Títulos em aberto, juros, contatos por operador, e-mail, WhatsApp, PIX e protesto.',
+    cor: '#d6336c',
+    fundo: '#f7f3f5',
+    pagina: 'modulos/cobranca/renderer/index.html',
+  },
+  {
     id: 'custo-producao',
     nome: 'Custo Produto/Produção',
     descricao: 'Custo das ordens de produção a partir dos insumos, com custo por kg e histórico.',

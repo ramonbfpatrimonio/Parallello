@@ -18,7 +18,8 @@ const COLS_EXCEL = [
   { titulo: 'Prazo Aprovado', campo: 'prazoAprovado', largura: 14 },
   { titulo: 'Período', campo: 'periodoTxt', largura: 24 },
   { titulo: 'Responsável', campo: 'responsavel', largura: 18 },
-  { titulo: 'Observação', campo: 'observacao', largura: 48 }
+  { titulo: 'Observação', campo: 'observacao', largura: 48 },
+  { titulo: 'Aplicado no ERP', campo: 'aplicadoTxt', largura: 18 }
 ];
 
 const COLS_REL = [
@@ -48,6 +49,7 @@ export default function Historico({ conexoes, ativa }) {
     ...d,
     score: d.snapshot?.score, perfil: d.snapshot?.perfil,
     limiteAtual: d.snapshot?.limiteAtual, limiteSugerido: d.snapshot?.limiteSugerido,
+    aplicadoTxt: d.aplicacao ? fmtDataHora(d.aplicacao.data) : '',
     periodoTxt: d.periodo?.inicial ? `${isoParaBr(d.periodo.inicial)} a ${isoParaBr(d.periodo.final)}` : 'Geral'
   })))).catch((e) => setErro(e.message));
   useEffect(() => { carregar(); }, []);
@@ -64,8 +66,8 @@ export default function Historico({ conexoes, ativa }) {
 
   const excluir = async (d) => {
     if (!window.confirm(`Excluir a decisão de ${d.nome} em ${fmtDataHora(d.data)}?`)) return;
-    await api.decisoesExcluir(d.id);
-    carregar();
+    try { await api.decisoesExcluir(d.id); carregar(); }
+    catch (e) { setErro(e.message); }
   };
 
   const nomeConexao = conexaoFiltro ? (conexoes.find((c) => c.id === conexaoFiltro)?.nome || '') : 'Todas as conexões';
@@ -155,6 +157,7 @@ export default function Historico({ conexoes, ativa }) {
                       <Th titulo="Responsável" campo="responsavel" ordem={ordem} onOrdenar={alternar} />
                       {!conexaoFiltro && <Th titulo="Conexão" campo="conexaoNome" ordem={ordem} onOrdenar={alternar} />}
                       <th>Observação</th>
+                      <Th titulo="ERP" campo="aplicadoTxt" ordem={ordem} onOrdenar={alternar} />
                       <th></th>
                     </tr>
                   </thead>
@@ -173,6 +176,7 @@ export default function Historico({ conexoes, ativa }) {
                         <td>{d.responsavel || '—'}</td>
                         {!conexaoFiltro && <td>{d.conexaoNome || '—'}</td>}
                         <td className="obs-cel">{d.observacao || '—'}</td>
+                        <td>{d.aplicacao ? <span className="aplicado" title={`${fmtMoeda(d.aplicacao.limiteAnterior)} → ${fmtMoeda(d.aplicacao.limiteNovo)}`}>Aplicado {fmtDataHora(d.aplicacao.data)}</span> : <span className="muted">Não aplicado</span>}</td>
                         <td><button className="btn-x" title="Excluir" onClick={() => excluir(d)}><Trash2 size={15} /></button></td>
                       </tr>
                     ))}

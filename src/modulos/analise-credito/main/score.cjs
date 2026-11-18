@@ -1,16 +1,19 @@
-// Cálculo do score, perfil, limite, prazos e ranking a partir das métricas do SQL.
+// Cálculo do score, perfil, limite, prazos, grupo e alertas a partir das linhas do SQL.
+// O score depende só dos dados do próprio cliente (histórico completo), então é
+// calculado direto nas linhas filtradas.
 
 const n = (v) => (v === null || v === undefined || isNaN(Number(v)) ? 0 : Number(v));
+const temValor = (v) => v !== null && v !== undefined && !isNaN(Number(v));
 
 // Valor que cada critério avalia (null = sem valor -> usa o "padrao", igual ao NULLIF do SQL)
 const VALORES = {
-  faturamento: (m) => n(m.TotalComprado),
+  faturamento: (m) => n(m.TotalCompradoHistorico),
   tempo: (m) => n(m.MesesRelacionamento),
-  ticket: (m) => (n(m.QtdPedidosVenda) ? n(m.TotalComprado) / n(m.QtdPedidosVenda) : null),
-  pagamento: (m) => n(m.AtrasoMedioDias),
-  volume: (m) => n(m.TotalParcelasPagas),
+  ticket: (m) => (n(m.QtdPedidosVenda) ? n(m.TotalCompradoHistorico) / n(m.QtdPedidosVenda) : null),
+  pagamento: (m) => n(m.AtrasoMedioScore),                       // ISNULL(am.AtrasoMedioDias, 0)
+  volume: (m) => n(m.ParcelasPagasJanela),
   frequencia: (m) => n(m.QtdPedidosVenda),
-  recencia: (m) => n(m.DiasUltimaCompra),
+  recencia: (m) => (temValor(m.DiasSemComprar) ? Number(m.DiasSemComprar) : 999999), // ISNULL(UltimaCompra, '1900-01-01')
   crescimento: (m) => (n(m.MediaCompra) ? n(m.MaiorCompra) / n(m.MediaCompra) : null)
 };
 
@@ -41,24 +44,48 @@ function pontuacaoMaxima(regras) {
   }, 0);
 }
 
-function faixaDoScore(score, regras) {
-  const faixas = [...(regras.faixasScore || [])].sort((a, b) => b.min - a.min);
-  return faixas.find((fx) => score >= Number(fx.min)) || faixas[faixas.length - 1];
+const porMinimo = (lista, score) =>
+  [...(lista || [])].sort((a, b) => Number(b.min) - Number(a.min)).find((x) => score >= Number(x.min)) || null;
+
+function classificarAtraso(m, al) {
+  if (!temValor(m.AtrasoMedioScore)) return 'Sem Histórico';
+  const d = Math.ceil(Number(m.AtrasoMedioScore));
+  if (d <= al.atrasoExcelente) return 'Excelente';
+  if (d <= al.atrasoBom) return 'Bom';
+  if (d <= al.atrasoMedio) return 'Médio';
+  return 'Ruim';
 }
 
-function posicaoMercado(score, pr) {
-  if (score === 0) return 'INADIMPLENTE - Não liberar crédito';
-  if (score < 30) return 'RISCO ALTO - Avaliar com cautela';
-  if (pr >= 0.8) return 'Top 20% melhores clientes';
-  if (pr >= 0.6) return 'Acima da média (20-40%)';
-  if (pr >= 0.4) return 'Na média (40-60%)';
-  if (pr >= 0.2) return 'Abaixo da média (60-80%)';
-  return 'Base da pirâmide (últimos 20%)';
+function alertaInatividade(m, al) {
+  if (!temValor(m.DiasSemComprar)) return { texto: 'Sem compras', nivel: 'sem' };
+  const d = Number(m.DiasSemComprar);
+  if (d > al.inatividadeCritico) return { texto: `CRÍTICO: Inativo > ${Math.round(al.inatividadeCritico / 30)} meses`, nivel: 'critico' };
+  if (d > al.inatividadeAtencao) return { texto: `ATENÇÃO: Inativo > ${Math.round(al.inatividadeAtencao / 30)} meses`, nivel: 'atencao' };
+  return { texto: 'Ativo', nivel: 'ok' };
 }
 
-// metricas: linhas de METRICAS (todos os clientes). Retorna Map(codigo -> resultado)
-function calcularScores(metricas, regras) {
-  const res = metricas.map((m) => {
+function alertaExposicao(m, al) {
+  if (!(n(m.LimiteAtual) > 0)) return { texto: 'Sem limite', nivel: 'sem' };
+  const p = n(m.PercentualUsoLimite);
+  if (p > al.usoLimiteRisco) return { texto: 'RISCO: Limite Esgotado', nivel: 'critico' };
+  if (p > al.usoLimiteAtencao) return { texto: 'ATENÇÃO: Uso Elevado', nivel: 'atencao' };
+  return { texto: 'Normal', nivel: 'ok' };
+}
+
+// (vendas a prazo ÷ meses) × fator × multiplicador pelo atraso médio (bruto, sem arredondar)
+function limitePorPeriodo(m, lp) {
+  const meses = n(m.MesesPeriodo);
+  if (!meses) return 0;
+  const at = m.AtrasoMedioScore;
+  const mult = !temValor(at) ? lp.semHistorico : Number(at) <= 1 ? lp.ate1 : Number(at) <= 5 ? lp.ate5 : Number(at) <= 15 ? lp.ate15 : lp.acima;
+  const v = (n(m.TotalVendidoPrazo) / meses) * n(lp.fatorPrazo) * n(mult);
+  return Math.round(v * 100) / 100;
+}
+
+// linhas: resultado do SQL; devolve as mesmas linhas com score, perfil, grupo e alertas
+function calcularScores(linhas, regras) {
+  const al = regras.alertas || {};
+  return linhas.map((m) => {
     const inadimplente = n(m.ValorInadimplente) > 0;
     const pontos = {};
     const valores = {};
@@ -67,60 +94,47 @@ function calcularScores(metricas, regras) {
       const fn = VALORES[crit.id];
       if (!fn) continue;
       const v = fn(m);
-      valores[crit.id] = v;
+      valores[crit.id] = crit.id === 'recencia' && !temValor(m.DiasSemComprar) ? null : v;
       const p = crit.id === 'pagamento' && inadimplente ? Number(crit.padrao) || 0 : avaliar(v, crit);
       pontos[crit.id] = p;
       soma += p;
     }
     const score = inadimplente && regras.zerarSeInadimplente ? 0 : soma;
-    return { codigo: String(m.ClienteID).trim(), score, pontos, valores, totalComprado: n(m.TotalComprado) };
-  });
 
-  // Correção #2: percentil ascendente (o melhor cliente fica perto de 1)
-  const total = res.length;
-  const asc = res.map((r) => r.score).sort((a, b) => a - b);
-  const primeiraPos = new Map();
-  asc.forEach((s, i) => { if (!primeiraPos.has(s)) primeiraPos.set(s, i); });
-
-  // NTILE(5) ordenado do maior para o menor score (1 = melhores)
-  const desc = [...res].sort((a, b) => b.score - a.score || a.codigo.localeCompare(b.codigo));
-  const base = Math.floor(total / 5);
-  const resto = total % 5;
-  const quintil = new Map();
-  let idx = 0;
-  for (let g = 1; g <= 5; g++) {
-    const tam = base + (g <= resto ? 1 : 0);
-    for (let k = 0; k < tam; k++) quintil.set(desc[idx++].codigo, g);
-  }
-
-  const mapa = new Map();
-  for (const r of res) {
-    const pr = total > 1 ? primeiraPos.get(r.score) / (total - 1) : 0;
-    const fx = faixaDoScore(r.score, regras) || { perfil: '-', observacao: '', prazoSugerido: 0, prazos: [], limites: [], limitePadrao: 0 };
+    const fx = porMinimo(regras.faixasScore, score) || { perfil: '-', prazoSugerido: 0, prazos: [], limites: [], limitePadrao: 0 };
     let limite = Number(fx.limitePadrao) || 0;
     for (const lm of fx.limites || []) {
-      if (compara(r.totalComprado, lm.op, lm.valor)) { limite = Number(lm.limite) || 0; break; }
+      if (compara(n(m.TotalCompradoHistorico), lm.op, lm.valor)) { limite = Number(lm.limite) || 0; break; }
     }
+    const grupo = porMinimo(regras.grupos, score);
     const prazos = fx.prazos || [];
-    mapa.set(r.codigo, {
-      ScoreCredito: r.score,
-      Pontos: r.pontos,
-      ValoresCriterios: r.valores,
-      PercentilRank: pr,
-      GrupoRanking: quintil.get(r.codigo) || null,
+    const inat = alertaInatividade(m, al);
+    const expo = alertaExposicao(m, al);
+
+    return {
+      ...m,
+      ScoreCredito: score,
+      Pontos: pontos,
+      ValoresCriterios: valores,
+      GrupoRanking: grupo ? grupo.grupo : null,
+      ObservacaoCredito: grupo ? grupo.observacao : '',
       PerfilCredito: fx.perfil,
-      LimiteSugerido: limite,
+      LimiteSugerido: limite,                                  // pelo score (faixas)
+      LimiteSugeridoPeriodo: limitePorPeriodo(m, regras.limitePeriodo || {}), // pelo período (matemática)
       PrazoSugeridoDias: Number(fx.prazoSugerido) || 0,
-      ObservacaoCredito: fx.observacao,
       Prazo1: prazos[0] || 'N/A',
       Prazo2: prazos[1] || 'N/A',
       Prazo3: prazos[2] || 'N/A',
       Prazo4: prazos[3] || 'N/A',
       Prazo5: prazos[4] || 'N/A',
-      PosicaoMercado: posicaoMercado(r.score, pr)
-    });
-  }
-  return { mapa, totalClientes: total, pontuacaoMaxima: pontuacaoMaxima(regras) };
+      PosicaoMercado: score === 0 ? 'INADIMPLENTE' : score < n(al.riscoAlto) ? 'RISCO ALTO' : 'Base',
+      ClassificacaoAtraso: classificarAtraso(m, al),
+      AlertaInatividade: inat.texto,
+      NivelInatividade: inat.nivel,
+      AlertaExposicao: expo.texto,
+      NivelExposicao: expo.nivel
+    };
+  });
 }
 
 module.exports = { calcularScores, pontuacaoMaxima };

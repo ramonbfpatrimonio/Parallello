@@ -1,0 +1,11 @@
+/* Moldura do módulo dentro do Parallello */
+.pl-cob { height: 100%; display: flex; flex-direction: column; }
+.pl-cob-corpo { flex: 1; min-height: 0; }
+.pl-cob-corpo > .cob { height: 100%; }
+.pl-cob-barra { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 6px 14px; background: #fff; border-bottom: 1px solid #e3e7ee; font: 13px 'Segoe UI', system-ui, sans-serif; color: #64748b; }
+.pl-cob-barra select { font: inherit; color: #1f2937; padding: 4px 8px; border: 1px solid #d5dbe5; border-radius: 6px; background: #fff; }
+.pl-cob-aviso { margin: 40px auto; max-width: 520px; padding: 18px 20px; border-radius: 10px; background: #fff3cd; color: #7a5a12; font: 14px 'Segoe UI', system-ui, sans-serif; text-align: center; }
+/* com a barra de conexão (mais de uma conexão), o módulo ocupa o resto da altura */
+.pl-cob-barra { height: 38px; box-sizing: border-box; flex: 0 0 38px; }
+.pl-cob.com-barra .cob-layout { min-height: calc(100vh - 38px); }
+.pl-cob.com-barra .cob-lateral { height: calc(100vh - 38px); }

@@ -27,6 +27,7 @@ export default defineConfig({
         acompanhamento: resolve(raiz, 'modulos/acompanhamento/renderer/index.html'),
         'indicador-logistico': resolve(raiz, 'modulos/indicador-logistico/renderer/index.html'),
         'comissao-contas-recebidas': resolve(raiz, 'modulos/comissao-contas-recebidas/renderer/index.html'),
+        cobranca: resolve(raiz, 'modulos/cobranca/renderer/index.html'),
         'analise-credito': resolve(raiz, 'modulos/analise-credito/renderer/index.html'),
         'custo-producao': resolve(raiz, 'modulos/custo-producao/renderer/index.html')
       }
